@@ -48,6 +48,34 @@ async function moveCursorToFunction(
     );
 }
 
+// Define an async function to retrieve the file list
+async function getFileList() {
+    // Get the workspace folders
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        // No workspace folders found
+        return [];
+    }
+
+    const fileList: string[] = [];
+
+    // Iterate over each workspace folder
+    for (const folder of workspaceFolders) {
+        // Create a glob pattern to match all files
+        const filePattern = new vscode.RelativePattern(folder, "**/*");
+
+        // Find all files that match the pattern
+        const files = await vscode.workspace.findFiles(filePattern);
+
+        // Add the file paths to the file list
+        files.forEach((file) => {
+            fileList.push(file.fsPath);
+        });
+    }
+
+    return fileList;
+}
+
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
@@ -69,7 +97,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     );
 
-    const buildContext = (): FunctionGraph => {
+    const buildContext = async (): Promise<FunctionGraph> => {
         const paths: readonly vscode.WorkspaceFolder[] | undefined =
             vscode.workspace.workspaceFolders;
         let rootPath = paths !== undefined ? paths[0].uri.path : "";
@@ -77,21 +105,51 @@ export function activate(context: vscode.ExtensionContext) {
             rootPath = rootPath.slice(1);
         }
 
+        const fileList = await getFileList();
+        let extensionCounts = new Map<string, number>();
+        for (const file of fileList) {
+            const extension = file.split(".").at(-1);
+            if (extension === undefined) {
+                continue;
+            }
+
+            const currentValue = extensionCounts.get(extension);
+            if (currentValue !== undefined) {
+                extensionCounts.set(extension, currentValue + 1);
+            } else {
+                extensionCounts.set(extension, 1);
+            }
+        }
+
+        let mostCommonExtension = "";
+        let highestCount = 0;
+        extensionCounts.forEach((value, key) => {
+            if (value > highestCount) {
+                mostCommonExtension = key;
+                highestCount = value;
+            }
+        });
+
         const verbose = 1;
-        const language = "c";
+        const language = mostCommonExtension;
 
         // look for metaphrase.json
-        let functionGraph: FunctionGraph;
+        let functionGraph: FunctionGraph = new FunctionGraph("");
         if (fileExists(rootPath, "metaphrase.json")) {
             console.log("existing context detected, loading metaphrase.json");
             functionGraph = new FunctionGraph(rootPath);
             functionGraph.deserialize(rootPath + "/metaphrase.json");
         } else {
             console.log("no existing context found, building new context");
-            functionGraph = buildGraph(rootPath, verbose, language);
+            try {
+                functionGraph = buildGraph(rootPath, verbose, language);
+            } catch (e) {
+                console.log(e);
+            }
             console.log(
                 "graph built; serializing to " + rootPath + "/metaphrase.json"
             );
+
             functionGraph.serialize(rootPath + "/metaphrase.json");
         }
 
@@ -110,7 +168,7 @@ export function activate(context: vscode.ExtensionContext) {
     const generateEmbeddings = vscode.commands.registerCommand(
         "metaphrase.generateEmbeddings",
         async () => {
-            const functionGraph = buildContext();
+            const functionGraph = await buildContext();
 
             for (const [key, f] of Object.entries(functionGraph.functions)) {
                 console.log(`generating embedding for ${key}`);
@@ -134,7 +192,7 @@ export function activate(context: vscode.ExtensionContext) {
                 placeHolder: "Where do we handle authentication?",
             });
 
-            const functionGraph = buildContext();
+            const functionGraph = await buildContext();
 
             if (prompt) {
                 vscode.window.showInformationMessage(
@@ -171,10 +229,25 @@ export function activate(context: vscode.ExtensionContext) {
         }
     );
 
+    const showFunctions = vscode.commands.registerCommand(
+        "metaphrase.showFunctions",
+        async () => {
+            const functionGraph = await buildContext();
+            let functions: string[] = [];
+            for (const f in functionGraph.functions) {
+                functions.push(f);
+            }
+
+            const message = functions.join("\n");
+            vscode.window.showInformationMessage(message);
+        }
+    );
+
     context.subscriptions.push(disposable);
     context.subscriptions.push(buildContextCommand);
     context.subscriptions.push(generateEmbeddings);
     context.subscriptions.push(queryRepository);
+    context.subscriptions.push(showFunctions);
 }
 
 // This method is called when your extension is deactivated
