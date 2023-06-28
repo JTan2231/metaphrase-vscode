@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 async function getEmbedding(text: string): Promise<number[]> {
-  const apiKey = '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';
+  const apiKey = '';
   const apiUrl = 'https://api.openai.com/v1/embeddings';
 
   const response = await axios.post(apiUrl, {
