@@ -20,6 +20,14 @@
       {
         "command": "metaphrase.buildContext",
         "title": "Build Context"
+      },
+      {
+        "command": "metaphrase.generateEmbeddings",
+        "title": "Generate Embeddings"
+      },
+      {
+        "command": "metaphrase.queryRepository",
+        "title": "Query Repository"
       }
     ]
   },
