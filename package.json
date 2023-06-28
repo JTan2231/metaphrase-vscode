@@ -28,6 +28,10 @@
       {
         "command": "metaphrase.queryRepository",
         "title": "Query Repository"
+      },
+      {
+        "command": "metaphrase.showFunctions",
+        "title": "Show Functions"
       }
     ]
   },

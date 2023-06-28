@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as c from "./c";
+import * as ts from "./typescript";
 import * as graphs from "../graphs/function_graph";
 
 const SUPPORTED_FILETYPES: Record<
@@ -8,6 +9,8 @@ const SUPPORTED_FILETYPES: Record<
     (rootPath: string, verbose: number) => graphs.FunctionGraph
 > = {
     c: c.buildGraphs,
+    h: c.buildGraphs,
+    ts: ts.buildGraphs,
 };
 
 export function buildGraph(
@@ -22,7 +25,6 @@ export function buildGraph(
     if (language.length === 0) {
         fs.readdirSync(rootPath).forEach((filename) => {
             const fileType = path.extname(filename).substring(1);
-            console.log("fileType: ", fileType);
             if (SUPPORTED_FILETYPES.hasOwnProperty(fileType)) {
                 buildFunction = SUPPORTED_FILETYPES[fileType];
                 return;

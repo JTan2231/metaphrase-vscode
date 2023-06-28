@@ -3,7 +3,7 @@ import * as graphs from "../graphs/function_graph";
 import * as fs from "fs";
 import * as path from "path";
 import { Embedding } from "../embedding";
-import { BraceStack } from "../brace_stack";
+import { BraceStack, ClassBraceStack } from "../brace_stack";
 import {
     filenameFromPath,
     findAfterIndex,
@@ -12,11 +12,9 @@ import {
     isLetter,
 } from "./parse_util";
 
-function getSources(rootPath: string): [string[], string[]] {
-    const headerRegex: RegExp = /.*\.h$/;
-    const sourceRegex: RegExp = /.*\.c$/;
+function getSources(rootPath: string): string[] {
+    const sourceRegex: RegExp = /.*\.ts$/;
 
-    const headers: string[] = [];
     const sources: string[] = [];
 
     function traverseDirectory(directoryPath: string) {
@@ -28,9 +26,10 @@ function getSources(rootPath: string): [string[], string[]] {
             const filePath: string = path.join(directoryPath, dirent.name);
 
             if (dirent.isFile()) {
-                if (headerRegex.test(dirent.name)) {
-                    headers.push(filePath);
-                } else if (sourceRegex.test(dirent.name)) {
+                if (
+                    sourceRegex.test(dirent.name) &&
+                    !dirent.name.includes(".test.")
+                ) {
                     sources.push(filePath);
                 }
             } else if (dirent.isDirectory()) {
@@ -41,7 +40,7 @@ function getSources(rootPath: string): [string[], string[]] {
 
     traverseDirectory(rootPath);
 
-    return [headers, sources];
+    return sources;
 }
 
 function getImports(lines: string[]): string[] {
@@ -72,29 +71,13 @@ function processFile(
 
     const functions: graphs.Function[] = [];
 
-    const typeNames: RegExp =
-        /void |unsigned |char |int |uint |long |float |double |static /;
+    const typeNames: RegExp = /function /;
     const branchingNames: RegExp = /if|while|for/;
 
     let l: number = 0;
+    let classBraceStack = new ClassBraceStack("{", "}");
     while (l < lines.length) {
         let line: string = lines[l];
-        if (line.length > 0 && line[0] === "#") {
-            let skip: number = 1;
-            let tl: number = l;
-            while (
-                tl < lines.length &&
-                lines[tl].length > 0 &&
-                lines[tl][lines[tl].length - 1] === "\\"
-            ) {
-                skip++;
-                tl++;
-            }
-
-            l += skip;
-
-            continue;
-        }
 
         let words: string = "";
         for (let i = 0; i < line.length; i++) {
@@ -122,13 +105,33 @@ function processFile(
                 continue;
             }
 
-            // Potential function call/definition
-            if (words[n - 1] === "(") {
-                // Ignore #define macros
-                if (lines[l][0] === "#") {
-                    continue;
+            if (
+                classBraceStack.className.length === 0 &&
+                words.includes("class ")
+            ) {
+                while (i < line.length && line[i] !== "{") {
+                    words += line[i];
+                    classBraceStack.className += line[i];
+                    i++;
                 }
 
+                if (line[i - 1] !== "{") {
+                    while (i < line.length && line[i] !== "{") {
+                        i++;
+                    }
+
+                    if (line[i] === "{") {
+                        classBraceStack.evalPush(line[i]);
+                    }
+                }
+
+                classBraceStack.className =
+                    classBraceStack.className.split("implements")[0];
+                classBraceStack.className = classBraceStack.className.trim();
+            }
+
+            // Potential function call/definition
+            if (words[n - 1] === "(") {
                 if (n > 1 && isLetter(words[n - 2])) {
                     // Get the entire function signature/call with arguments
                     const bs = new BraceStack("(", ")");
@@ -178,7 +181,14 @@ function processFile(
                     let isDeclaration: boolean = false;
                     const def: string[] = [];
                     // Is it a function declaration/definition?
-                    if (typeNames.test(words.slice(0, words.indexOf("(")))) {
+                    const hasFunctionKeyword = typeNames.test(
+                        words.slice(0, words.indexOf("("))
+                    );
+
+                    if (
+                        hasFunctionKeyword ||
+                        (!hasFunctionKeyword && classBraceStack.len() > 0)
+                    ) {
                         // Find the definition
                         cl = l;
                         while (cl < lines.length) {
@@ -193,6 +203,7 @@ function processFile(
                                         "}"
                                     );
                                     dbs.evalPush(dc);
+                                    classBraceStack.evalPush(dc);
 
                                     let idx: number = j + 1;
                                     while (cl < lines.length && dbs.len() > 0) {
@@ -202,6 +213,9 @@ function processFile(
                                             idx < lines[cl].length
                                         ) {
                                             dbs.evalPush(lines[cl][idx]);
+                                            classBraceStack.evalPush(
+                                                lines[cl][idx]
+                                            );
                                             idx++;
                                         }
 
@@ -239,7 +253,10 @@ function processFile(
                         functions.push({
                             filename: filename,
                             signature: signature,
-                            name: name,
+                            name:
+                                (classBraceStack.className.length > 0
+                                    ? classBraceStack.className + "."
+                                    : "") + name,
                             definition: def,
                             definitionLine: l,
                             declarationLine: l,
@@ -274,30 +291,15 @@ function processFile(
 
         functionGraph.addFunction(f);
     }
-
-    //console.log('finished processing file: ' + filepath);
-
-    /*for (const imp of imports) {
-    fileGraph.addNode(imp);
-    fileGraph.addEdge(filename, imp);
-  }*/
 }
 
 export function buildGraphs(
     rootPath: string,
     verbose: number
 ): graphs.FunctionGraph {
-    const [headers, sources] = getSources(rootPath);
+    const sources = getSources(rootPath);
 
     const functionGraph = new graphs.FunctionGraph(rootPath);
-
-    for (const header of headers) {
-        if (verbose > 0) {
-            console.log("processing file: " + header);
-        }
-
-        processFile(functionGraph, header, verbose);
-    }
 
     for (const source of sources) {
         if (verbose > 0) {
