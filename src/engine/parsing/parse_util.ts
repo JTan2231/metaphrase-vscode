@@ -1,11 +1,12 @@
 import { readFileSync } from "fs";
+import { sep } from "path";
 
 export function isLetter(char: string): boolean {
     return char.length === 1 && char.match(/[a-z]/i) !== null;
 }
 
 export function filenameFromPath(filepath: string): string {
-    const split: string[] = filepath.split("/");
+    const split: string[] = filepath.split(sep);
     return split[split.length - 1];
 }
 
@@ -35,11 +36,7 @@ export function getLines(filepath: string): string[] {
     return lines;
 }
 
-export function findAfterIndex(
-    line: string,
-    idx: number,
-    term: string
-): number {
+export function findAfterIndex(line: string, idx: number, term: string): number {
     let i: number = idx;
     while (i < line.length) {
         if (term.includes(line[i])) {

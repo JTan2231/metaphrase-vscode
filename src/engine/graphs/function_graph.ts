@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { Embedding } from "../embedding";
 
-export interface Function {
+export class Function {
     filename: string;
     signature: string;
     name: string;
@@ -10,6 +10,17 @@ export interface Function {
     declarationLine: number;
     calls: { [key: string]: boolean };
     embedding: Embedding;
+
+    constructor() {
+        this.filename = "";
+        this.signature = "";
+        this.name = "";
+        this.definition = [];
+        this.definitionLine = 0;
+        this.declarationLine = 0;
+        this.calls = {};
+        this.embedding = new Embedding([]);
+    }
 }
 
 export interface FunctionNode {
@@ -46,14 +57,15 @@ export class FunctionGraph {
 
     addFunction(f: Function): void {
         if (!(f.name in this.functions)) {
-            this.functions[f.name] = {
-                name: f.name,
+            const name = f.filename + "/" + f.name;
+            this.functions[name] = {
+                name: name,
                 filename: f.filename,
                 signature: f.signature,
                 definition: f.definition,
                 definitionLine: f.definitionLine,
                 declarationLine: f.declarationLine,
-                embedding: f.embedding,
+                embedding: f.embedding
             };
 
             const calls = Object.keys(f.calls);
@@ -75,9 +87,7 @@ export class FunctionGraph {
             const callees = this.dependencyQueueSet[caller];
             const callerNode = this.getFunctionNode(caller);
             if (callerNode === null) {
-                throw new Error(
-                    `SetEdges: callerNode function ${caller} does not exist in function graph`
-                );
+                throw new Error(`SetEdges: callerNode function ${caller} does not exist in function graph`);
             }
 
             for (const callee of callees) {
@@ -98,7 +108,7 @@ export class FunctionGraph {
                 } else {
                     this.imports[callee] = {
                         functions: [callerNode],
-                        context: "",
+                        context: ""
                     };
                 }
             }
@@ -133,14 +143,8 @@ export class FunctionGraph {
             console.log(`function name: ${filename}`);
 
             if (verbose) {
-                for (
-                    let lineNumber = 0;
-                    lineNumber < node.definition.length;
-                    lineNumber++
-                ) {
-                    console.log(
-                        `${lineNumber}: ${node.definition[lineNumber]}`
-                    );
+                for (let lineNumber = 0; lineNumber < node.definition.length; lineNumber++) {
+                    console.log(`${lineNumber}: ${node.definition[lineNumber]}`);
                 }
             }
         }

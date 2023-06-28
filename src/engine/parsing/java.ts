@@ -107,10 +107,10 @@ function processFile(
                     }
                 }
 
-                if (classBraceStack.className.includes("extends")) {
+                if (classBraceStack.className.includes(" extends ")) {
                     classBraceStack.className =
                         classBraceStack.className.split("extends")[0];
-                } else if (classBraceStack.className.includes("implements")) {
+                } else if (classBraceStack.className.includes(" implements ")) {
                     classBraceStack.className =
                         classBraceStack.className.split("implements")[0];
                 }

@@ -195,7 +195,7 @@ function processFile(
                                     dbs.evalPush(dc);
 
                                     let idx: number = j + 1;
-                                    while (cl < lines.length && dbs.len() > 0) {
+                                    while (cl < lines.length && dbs.len() > -1) {
                                         def.push(lines[cl]);
                                         while (
                                             dbs.len() > 0 &&
