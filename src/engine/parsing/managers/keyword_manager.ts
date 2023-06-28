@@ -255,11 +255,6 @@ export class TypeScriptParser {
 
             this.nextCharacter();
         }
-
-        for (const f of functions) {
-            console.log(f);
-        }
-
         return functions;
     }
 }
