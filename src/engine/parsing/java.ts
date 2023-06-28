@@ -13,7 +13,7 @@ import {
 } from "./parse_util";
 
 function getSources(rootPath: string): string[] {
-    const sourceRegex: RegExp = /.*\.ts$/;
+    const sourceRegex: RegExp = /.*\.java$/;
 
     const sources: string[] = [];
 
@@ -53,7 +53,7 @@ function processFile(
 
     const functions: graphs.Function[] = [];
 
-    const typeNames: RegExp = /function /;
+    const typeNames: RegExp = /public|private|protected/;
     const branchingNames: RegExp = /if|while|for/;
 
     let l: number = 0;
@@ -107,8 +107,14 @@ function processFile(
                     }
                 }
 
-                classBraceStack.className =
-                    classBraceStack.className.split("implements")[0];
+                if (classBraceStack.className.includes("extends")) {
+                    classBraceStack.className =
+                        classBraceStack.className.split("extends")[0];
+                } else if (classBraceStack.className.includes("implements")) {
+                    classBraceStack.className =
+                        classBraceStack.className.split("implements")[0];
+                }
+
                 classBraceStack.className = classBraceStack.className.trim();
             }
 

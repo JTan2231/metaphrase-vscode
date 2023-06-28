@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as c from "./c";
 import * as ts from "./typescript";
+import * as java from "./java";
 import * as graphs from "../graphs/function_graph";
 
 const SUPPORTED_FILETYPES: Record<
@@ -11,6 +12,7 @@ const SUPPORTED_FILETYPES: Record<
     c: c.buildGraphs,
     h: c.buildGraphs,
     ts: ts.buildGraphs,
+    java: java.buildGraphs,
 };
 
 export function buildGraph(
