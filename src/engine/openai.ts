@@ -10,15 +10,15 @@ export async function getEmbedding(text: string): Promise<Embedding> {
         apiUrl,
         {
             model: "text-embedding-ada-002",
-            input: text,
+            input: text
         },
         {
             headers: {
                 // eslint-disable-next-line @typescript-eslint/naming-convention
                 "Content-Type": "application/json",
                 // eslint-disable-next-line @typescript-eslint/naming-convention
-                Authorization: `Bearer ${apiKey}`,
-            },
+                Authorization: `Bearer ${apiKey}`
+            }
         }
     );
 
