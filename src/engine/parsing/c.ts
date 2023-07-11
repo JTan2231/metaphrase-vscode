@@ -2,15 +2,264 @@ import * as graphs from "../graphs/function_graph";
 
 import * as fs from "fs";
 import * as path from "path";
-import { Embedding } from "../embedding";
-import { BraceStack } from "../brace_stack";
-import {
-    filenameFromPath,
-    findAfterIndex,
-    getFunctionName,
-    getLines,
-    isLetter,
-} from "./parse_util";
+import { BracedScopeManager } from "../brace_stack";
+import { filenameFromPath, findAfterIndex, getLines } from "./parse_util";
+import { Function } from "../graphs/function_graph";
+
+export class CParser {
+    private buffer: string = "";
+    private line: number = 0;
+    private cursor: number = 0;
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    private EOF: boolean = false;
+
+    private lines: string[];
+    private scopeManager: BracedScopeManager;
+
+    private keywords: string[] = ["function", "if", "while", "for", "class"];
+
+    // these regexes could probably be better
+    private functionRegex: RegExp = /\w* \w*\(([\w\*]*\s*[\w\*]*,\s*)*([\w\*]*\s*[\w\*]*)?\)\s*{/;
+
+    constructor(toBeParsed: string[]) {
+        this.lines = toBeParsed;
+        this.scopeManager = new BracedScopeManager();
+    }
+
+    eofCheck() {
+        if (this.EOF) {
+            console.log("WARNING: EOF reached");
+        }
+
+        return this.EOF;
+    }
+
+    // leaves the cursor/line number on the next target character or EOF
+    findNextTargetCharacter(target: string): string {
+        if (this.eofCheck()) {
+            return "";
+        }
+
+        let buffer = "";
+        while (this.line < this.lines.length) {
+            const currentLine = this.lines[this.line];
+            while (this.cursor < currentLine.length) {
+                const currentChar = currentLine[this.cursor];
+                buffer += currentChar;
+                this.scopeManager.push(currentChar);
+
+                if (currentChar !== target) {
+                    this.cursor++;
+                } else {
+                    return buffer;
+                }
+            }
+
+            this.nextLine();
+        }
+
+        if (this.line === this.lines.length) {
+            console.log(`WARNING: EOF reached, character \`${target}\` not found.`);
+            this.EOF = true;
+        }
+
+        return buffer;
+    }
+
+    // since the return type can be aliased, just look for the most recent word
+    // behind the function name
+    findFunctionPrepend(): string {
+        const hardLimit = 50;
+
+        let buffer = "";
+        let cursor = this.cursor;
+        let line = this.line;
+        let distance = 0;
+
+        [cursor, line] = this.decrementCursor(cursor, line);
+
+        const alphanumeric: RegExp = /^[a-z0-9]+$/i;
+
+        const boundsCheck = (distance: number, cursor: number, line: number) => {
+            return distance < hardLimit && cursor > -1 && line > -1;
+        };
+
+        const currentChar = (line: number, cursor: number) => {
+            return this.lines[line][cursor];
+        };
+
+        // we're starting at the opening parenthesis of the function name
+        // move backward until we find the function name
+        // i.e. look for alphanumeric characters
+        //
+        // note we don't want anything between the parenthesis and function name
+        // aside from whitespace
+        while (boundsCheck(distance, cursor, line)) {
+            if (alphanumeric.test(currentChar(line, cursor)) || currentChar(line, cursor) !== " ") {
+                break;
+            }
+
+            [cursor, line] = this.decrementCursor(cursor, line);
+            distance++;
+        }
+
+        if (!alphanumeric.test(currentChar(line, cursor))) {
+            return buffer;
+        }
+
+        // now that we're at the function name, find the return type
+        // by looking for whitespace again,
+        // then once more when we find the assumed return type
+        while (boundsCheck(distance, cursor, line) && currentChar(line, cursor) !== " ") {
+            buffer = currentChar(line, cursor) + buffer;
+            [cursor, line] = this.decrementCursor(cursor, line);
+            distance++;
+        }
+
+        // find the return type
+        while (boundsCheck(distance, cursor, line) && !alphanumeric.test(currentChar(line, cursor))) {
+            buffer = currentChar(line, cursor) + buffer;
+            [cursor, line] = this.decrementCursor(cursor, line);
+            distance++;
+        }
+
+        // get the return type in the buffer
+        while (boundsCheck(distance, cursor, line) && alphanumeric.test(currentChar(line, cursor))) {
+            buffer = currentChar(line, cursor) + buffer;
+            [cursor, line] = this.decrementCursor(cursor, line);
+            distance++;
+        }
+
+        return buffer;
+    }
+
+    keywordMatch(): string {
+        for (const keyword of this.keywords) {
+            if (this.buffer.includes(keyword)) {
+                return keyword;
+            }
+        }
+
+        return "";
+    }
+
+    nextLine() {
+        this.line++;
+        this.cursor = 0;
+
+        this.EOF = this.line >= this.lines.length;
+        this.scopeManager.lineBreak();
+    }
+
+    nextCharacter() {
+        if (this.eofCheck()) {
+            return;
+        }
+
+        if (this.cursor + 1 >= this.lines[this.line].length) {
+            this.nextLine();
+        } else {
+            this.cursor++;
+        }
+    }
+
+    prevCharacter() {
+        if (this.cursor === 0) {
+            if (this.line > 0) {
+                this.line--;
+                this.cursor = this.lines[this.line].length - 1;
+            } else {
+                this.cursor--;
+            }
+        }
+    }
+
+    decrementCursor(cursor: number, line: number): number[] {
+        if (cursor === 0) {
+            line--;
+            cursor = this.lines[line].length - 1;
+        } else {
+            cursor--;
+        }
+
+        return [cursor, line];
+    }
+
+    findTargetWithUpdate(target: string) {
+        const searchBuffer = this.findNextTargetCharacter(target);
+        this.buffer += searchBuffer;
+    }
+
+    parse() {
+        const functions: Function[] = [];
+
+        let currentFunction = new Function();
+        const functionCallback = () => {
+            currentFunction.definition.unshift(currentFunction.signature);
+            currentFunction.signature = currentFunction.signature.slice(0, currentFunction.signature.length - 1).trim();
+
+            functions.push(currentFunction);
+            currentFunction = new Function();
+        };
+
+        this.scopeManager.resetFunctionCallback = functionCallback;
+
+        while (!this.eofCheck()) {
+            const line = this.lines[this.line];
+            const c = line[this.cursor];
+
+            this.scopeManager.push(c);
+
+            if (!(this.scopeManager.inQuote() || this.scopeManager.inComment())) {
+                if (currentFunction !== null && this.scopeManager.inFunction) {
+                    // continue getting the definition
+                    currentFunction.definition.push(line);
+
+                    for (const char of line) {
+                        this.scopeManager.push(char);
+                    }
+
+                    this.nextLine();
+                    continue;
+                } else {
+                    if (c === "(") {
+                        // look for function keyword
+                        // if it exists, is this a function signature?
+                        const functionPrepend = this.findFunctionPrepend();
+
+                        this.buffer = functionPrepend;
+                        this.findTargetWithUpdate("{");
+
+                        // if it fits, start logging the definition
+                        const match = this.functionRegex.exec(this.buffer);
+                        if (match !== null) {
+                            const functionSignature = this.buffer.slice(match.index, this.buffer.length);
+                            const functionName = functionSignature.split(" ")[1].split("(")[0];
+
+                            this.scopeManager.setFunction(functionSignature);
+                            currentFunction.signature = functionSignature;
+                            currentFunction.name = functionName;
+
+                            this.buffer = "";
+                            this.nextLine();
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // NOTE: the following line is a (hopefully) guarantee that this.buffer.length >= 1
+            this.buffer += c;
+            if (this.buffer.endsWith(" ")) {
+                this.buffer = "";
+            }
+
+            this.nextCharacter();
+        }
+
+        return functions;
+    }
+}
 
 function getSources(rootPath: string): [string[], string[]] {
     const headerRegex: RegExp = /.*\.h$/;
@@ -21,7 +270,7 @@ function getSources(rootPath: string): [string[], string[]] {
 
     function traverseDirectory(directoryPath: string) {
         const dirents: fs.Dirent[] = fs.readdirSync(directoryPath, {
-            withFileTypes: true,
+            withFileTypes: true
         });
 
         for (const dirent of dirents) {
@@ -61,232 +310,25 @@ function getImports(lines: string[]): string[] {
     return imports;
 }
 
-function processFile(
-    functionGraph: graphs.FunctionGraph,
-    filepath: string,
-    verbose: number
-): void {
+function processFile(functionGraph: graphs.FunctionGraph, filepath: string, verbose: number): void {
     const filename: string = filenameFromPath(filepath);
     const lines: string[] = getLines(filepath);
-    const imports: string[] = getImports(lines);
 
-    const functions: graphs.Function[] = [];
-
-    const typeNames: RegExp =
-        /void |unsigned |char |int |uint |long |float |double |static /;
-    const branchingNames: RegExp = /if|while|for/;
-
-    let l: number = 0;
-    while (l < lines.length) {
-        let line: string = lines[l];
-        if (line.length > 0 && line[0] === "#") {
-            let skip: number = 1;
-            let tl: number = l;
-            while (
-                tl < lines.length &&
-                lines[tl].length > 0 &&
-                lines[tl][lines[tl].length - 1] === "\\"
-            ) {
-                skip++;
-                tl++;
-            }
-
-            l += skip;
-
-            continue;
-        }
-
-        let words: string = "";
-        for (let i = 0; i < line.length; i++) {
-            const c: string = line[i];
-            words += c;
-            const n: number = words.length;
-            const m: number = Math.max(n - 2, 0);
-
-            // Ignore comments
-            if (words.slice(m).includes("/*")) {
-                words = words.slice(m);
-                let commentEnd: boolean = false;
-                while (l < lines.length && !commentEnd) {
-                    commentEnd = lines[l].includes("*/");
-                    l++;
-                }
-
-                if (commentEnd) {
-                    l--;
-                }
-
-                break;
-            } else if (words.slice(m).includes("//")) {
-                words = "";
-                continue;
-            }
-
-            // Potential function call/definition
-            if (words[n - 1] === "(") {
-                // Ignore #define macros
-                if (lines[l][0] === "#") {
-                    continue;
-                }
-
-                if (n > 1 && isLetter(words[n - 2])) {
-                    // Get the entire function signature/call with arguments
-                    const bs = new BraceStack("(", ")");
-                    bs.evalPush(words[n - 1]);
-
-                    const wordsParentheseIndex: number = words.length - 1;
-
-                    let idx: number = i + 1;
-                    let cl: number = l;
-                    while (cl < lines.length && bs.len() > 0) {
-                        while (bs.len() > 0 && idx < lines[cl].length) {
-                            const nc: string = lines[cl][idx];
-                            words += nc;
-
-                            bs.evalPush(lines[cl][idx]);
-
-                            idx++;
-                        }
-
-                        if (bs.len() === 0) {
-                            break;
-                        } else {
-                            cl++;
-                            idx = 0;
-                        }
-                    }
-
-                    // Cut off everything else in the line
-                    idx = wordsParentheseIndex - 1;
-                    let rwi: string = words[idx];
-                    while (
-                        idx > 0 &&
-                        (isLetter(rwi) || rwi === "_" || rwi === " ")
-                    ) {
-                        idx--;
-                        rwi = words[idx];
-                    }
-
-                    if (!isLetter(words[idx])) {
-                        idx++;
-                    }
-
-                    words = words.slice(idx);
-                    words = words.trim();
-
-                    let isDefinition: boolean = false;
-                    let isDeclaration: boolean = false;
-                    const def: string[] = [];
-                    // Is it a function declaration/definition?
-                    if (typeNames.test(words.slice(0, words.indexOf("(")))) {
-                        // Find the definition
-                        cl = l;
-                        while (cl < lines.length) {
-                            // Find the starting brace
-                            for (let j = 0; j < lines[cl].length; j++) {
-                                const dc: string = lines[cl][j];
-                                if (dc === "{") {
-                                    // Log the definition
-                                    isDefinition = true;
-                                    const dbs: BraceStack = new BraceStack(
-                                        "{",
-                                        "}"
-                                    );
-                                    dbs.evalPush(dc);
-
-                                    let idx: number = j + 1;
-                                    while (cl < lines.length && dbs.len() > -1) {
-                                        def.push(lines[cl]);
-                                        while (
-                                            dbs.len() > 0 &&
-                                            idx < lines[cl].length
-                                        ) {
-                                            dbs.evalPush(lines[cl][idx]);
-                                            idx++;
-                                        }
-
-                                        cl++;
-                                        idx = 0;
-                                    }
-
-                                    break;
-                                } else if (dc === ";") {
-                                    isDeclaration = true;
-                                }
-                            }
-
-                            if (def.length > 0 || isDeclaration) {
-                                break;
-                            }
-
-                            cl++;
-                        }
-                    }
-
-                    // Remove the `return` keyword if it's there
-                    if (words.length > 6 && words.slice(0, 7) === "return ") {
-                        words = words.slice(7);
-                    }
-
-                    const name: string = getFunctionName(words);
-                    if (branchingNames.test(name)) {
-                        continue;
-                    }
-
-                    if (isDefinition) {
-                        const signature: string = words;
-
-                        functions.push({
-                            filename: filename,
-                            signature: signature,
-                            name: name,
-                            definition: def,
-                            definitionLine: l,
-                            declarationLine: l,
-                            calls: {},
-                            embedding: new Embedding([]),
-                        });
-                    } else {
-                        // This is to throw away function declarations
-                        // Functions are logged in the graph only if they're defined
-                        if (functions.length > 0) {
-                            functions[functions.length - 1].calls[name] = true;
-                        } else if (verbose > 2) {
-                            console.log("    - ignoring declaration: " + name);
-                        }
-                    }
-
-                    words = "";
-                }
-
-                continue;
-            }
-        }
-
-        l++;
-    }
+    let parser = new CParser(lines);
+    const functions = parser.parse();
 
     // Add the functions to the graph
     for (const f of functions) {
+        f.filename = filename;
         if (verbose > 1) {
             console.log("  - processing function: " + f.name);
         }
 
         functionGraph.addFunction(f);
     }
-
-    //console.log('finished processing file: ' + filepath);
-
-    /*for (const imp of imports) {
-    fileGraph.addNode(imp);
-    fileGraph.addEdge(filename, imp);
-  }*/
 }
 
-export function buildGraphs(
-    rootPath: string,
-    verbose: number
-): graphs.FunctionGraph {
+export function buildGraphs(rootPath: string, verbose: number): graphs.FunctionGraph {
     const [headers, sources] = getSources(rootPath);
 
     const functionGraph = new graphs.FunctionGraph(rootPath);

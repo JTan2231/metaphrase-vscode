@@ -76,6 +76,7 @@ function top(array: Array<string>): string {
     return array.length > 0 ? array[array.length - 1] : "";
 }
 
+// for C-esque languages
 export class BracedScopeManager {
     private stack: Array<string>;
 
@@ -90,16 +91,9 @@ export class BracedScopeManager {
     public inClass = false;
     public inFunction = false;
 
-    public resetFunctionCallback = () => { };
+    public resetFunctionCallback = () => {};
 
-    private beginSet = [
-        "(",
-        "[",
-        "{",
-        `"`,
-        `'`,
-        "`",
-    ];
+    private beginSet = ["(", "[", "{", `"`, `'`, "`"];
 
     private endSet = new Map<string, string>([
         ["(", ")"],
@@ -107,16 +101,10 @@ export class BracedScopeManager {
         ["[", "]"],
         [`"`, `"`],
         [`'`, `'`],
-        ["`", "`"],
+        ["`", "`"]
     ]);
 
-    private multiCharacterSet = [
-        "/",
-        "*",
-        "//",
-        "/*",
-        "*/",
-    ];
+    private multiCharacterSet = ["/", "*", "//", "/*", "*/"];
 
     constructor() {
         this.stack = new Array<string>();
@@ -187,8 +175,7 @@ export class BracedScopeManager {
                 // end multi-line comment
                 else if (m === "*/") {
                     this.stack.pop();
-                }
-                else {
+                } else {
                     this.multi = m;
                 }
 
