@@ -1,12 +1,17 @@
-import * as graphs from "../graphs/function_graph";
+import * as graphs from "../../graphs/function_graph";
 
 import * as fs from "fs";
 import * as path from "path";
-import { BracedScopeManager } from "../brace_stack";
-import { filenameFromPath, findAfterIndex, getLines } from "./parse_util";
-import { Function } from "../graphs/function_graph";
+import { filenameFromPath, getLines } from "../parse_util";
+import { BracedScopeManager } from "../../brace_stack";
+import { Function } from "../../graphs/function_graph";
 
-export class CParser {
+// even after the refactor this still feels terrible
+// is there something better than OOP here?
+// I couldn't find the solution if there is
+//
+// TODO: another refactor lol
+export class TypeScriptParser {
     private buffer: string = "";
     private line: number = 0;
     private cursor: number = 0;
@@ -18,8 +23,10 @@ export class CParser {
 
     private keywords: string[] = ["function", "if", "while", "for", "class"];
 
-    // these regexes could probably be better
-    private functionRegex: RegExp = /\w* \w*\(([\w\*]*\s*[\w\*]*,\s*)*([\w\*]*\s*[\w\*]*)?\)\s*{/;
+    // these could probably be better
+    private classRegex: RegExp = /class\s[\w\d]*(\s*[\w\d]*\s*)*{/;
+    private functionRegex: RegExp = /function \w*\((\s*[\w\d]*:(\s*\w*\d*.*\s*))*\)(\s*:(\s*\w*\d*.*\s*))*{/;
+    private classFunctionRegex: RegExp = /\w*\((\s*[\w\d]*:(\s*\w*\d*.*\s*))*\)(\s*:(\s*\w*\d*.*\s*))*\s*{/;
 
     constructor(toBeParsed: string[]) {
         this.lines = toBeParsed;
@@ -66,68 +73,32 @@ export class CParser {
         return buffer;
     }
 
-    // since the return type can be aliased, just look for the most recent word
-    // behind the function name
+    // look for the keyword function backward from the current position
+    // up to distance `hardLimit`
     findFunctionPrepend(): string {
         const hardLimit = 50;
 
-        let buffer = "";
         let cursor = this.cursor;
-        let line = this.line;
+        let lineNumber = this.line;
         let distance = 0;
 
-        [cursor, line] = this.decrementCursor(cursor, line);
+        let buffer = "";
+        while (lineNumber > -1 && distance < hardLimit) {
+            while (cursor > -1 && distance < hardLimit) {
+                buffer = this.lines[lineNumber][cursor] + buffer;
 
-        const alphanumeric: RegExp = /^[a-z0-9]+$/i;
+                if (buffer.includes("function ")) {
+                    return buffer;
+                }
 
-        const boundsCheck = (distance: number, cursor: number, line: number) => {
-            return distance < hardLimit && cursor > -1 && line > -1;
-        };
-
-        const currentChar = (line: number, cursor: number) => {
-            return this.lines[line][cursor];
-        };
-
-        // we're starting at the opening parenthesis of the function name
-        // move backward until we find the function name
-        // i.e. look for alphanumeric characters
-        //
-        // note we don't want anything between the parenthesis and function name
-        // aside from whitespace
-        while (boundsCheck(distance, cursor, line)) {
-            if (alphanumeric.test(currentChar(line, cursor)) || currentChar(line, cursor) !== " ") {
-                break;
+                cursor--;
+                distance++;
             }
 
-            [cursor, line] = this.decrementCursor(cursor, line);
-            distance++;
-        }
-
-        if (!alphanumeric.test(currentChar(line, cursor))) {
-            return buffer;
-        }
-
-        // now that we're at the function name, find the return type
-        // by looking for whitespace again,
-        // then once more when we find the assumed return type
-        while (boundsCheck(distance, cursor, line) && currentChar(line, cursor) !== " ") {
-            buffer = currentChar(line, cursor) + buffer;
-            [cursor, line] = this.decrementCursor(cursor, line);
-            distance++;
-        }
-
-        // find the return type
-        while (boundsCheck(distance, cursor, line) && !alphanumeric.test(currentChar(line, cursor))) {
-            buffer = currentChar(line, cursor) + buffer;
-            [cursor, line] = this.decrementCursor(cursor, line);
-            distance++;
-        }
-
-        // get the return type in the buffer
-        while (boundsCheck(distance, cursor, line) && alphanumeric.test(currentChar(line, cursor))) {
-            buffer = currentChar(line, cursor) + buffer;
-            [cursor, line] = this.decrementCursor(cursor, line);
-            distance++;
+            lineNumber--;
+            if (lineNumber > -1) {
+                cursor = this.lines[lineNumber].length - 1;
+            }
         }
 
         return buffer;
@@ -148,7 +119,6 @@ export class CParser {
         this.cursor = 0;
 
         this.EOF = this.line >= this.lines.length;
-        this.scopeManager.lineBreak();
     }
 
     nextCharacter() {
@@ -163,28 +133,6 @@ export class CParser {
         }
     }
 
-    prevCharacter() {
-        if (this.cursor === 0) {
-            if (this.line > 0) {
-                this.line--;
-                this.cursor = this.lines[this.line].length - 1;
-            } else {
-                this.cursor--;
-            }
-        }
-    }
-
-    decrementCursor(cursor: number, line: number): number[] {
-        if (cursor === 0) {
-            line--;
-            cursor = this.lines[line].length - 1;
-        } else {
-            cursor--;
-        }
-
-        return [cursor, line];
-    }
-
     findTargetWithUpdate(target: string) {
         const searchBuffer = this.findNextTargetCharacter(target);
         this.buffer += searchBuffer;
@@ -197,6 +145,10 @@ export class CParser {
         const functionCallback = () => {
             currentFunction.definition.unshift(currentFunction.signature);
             currentFunction.signature = currentFunction.signature.slice(0, currentFunction.signature.length - 1).trim();
+
+            if (this.scopeManager.currentClass !== "") {
+                currentFunction.name = this.scopeManager.currentClass + "." + currentFunction.name;
+            }
 
             functions.push(currentFunction);
             currentFunction = new Function();
@@ -222,27 +174,69 @@ export class CParser {
                     this.nextLine();
                     continue;
                 } else {
-                    if (c === "(") {
-                        // look for function keyword
-                        // if it exists, is this a function signature?
-                        const functionPrepend = this.findFunctionPrepend();
+                    if (this.buffer.includes("class")) {
+                        // if we find the word `class`, find the next open bracket `{`
+                        // and check if it's an actual class definition
+                        if (!this.buffer.endsWith("{")) {
+                            this.findTargetWithUpdate("{");
+                        }
 
-                        this.buffer = functionPrepend;
-                        this.findTargetWithUpdate("{");
+                        const match = this.classRegex.test(this.buffer);
+                        if (match) {
+                            const index = Math.max(0, this.buffer.indexOf("class "));
+                            this.buffer = this.buffer.substring(index, this.buffer.length);
+                            const className = this.buffer.split(" ")[1];
 
-                        // if it fits, start logging the definition
-                        const match = this.functionRegex.exec(this.buffer);
-                        if (match !== null) {
-                            const functionSignature = this.buffer.slice(match.index, this.buffer.length);
-                            const functionName = functionSignature.split(" ")[1].split("(")[0];
-
-                            this.scopeManager.setFunction(functionSignature);
-                            currentFunction.signature = functionSignature;
-                            currentFunction.name = functionName;
+                            this.scopeManager.setClass(className);
 
                             this.buffer = "";
                             this.nextLine();
                             continue;
+                        }
+                    } else if (c === "(") {
+                        if (this.scopeManager.inClass) {
+                            // find the start of the suspected function
+                            this.nextCharacter();
+                            this.buffer += c;
+                            this.findTargetWithUpdate("{");
+
+                            // does it fit the regex? if yes, start logging the definition
+                            const match = this.classFunctionRegex.exec(this.buffer);
+                            if (match !== null) {
+                                const functionSignature = this.buffer.slice(match.index, this.buffer.length);
+                                const functionName = functionSignature.split("(")[0];
+
+                                this.scopeManager.setFunction(functionSignature);
+                                currentFunction.signature = functionSignature;
+                                currentFunction.name = functionName;
+
+                                this.buffer = "";
+                                this.nextLine();
+                                continue;
+                            }
+                        } else {
+                            // look for function keyword
+                            // if it exists, is this a function signature?
+                            const functionKeyword = this.findFunctionPrepend();
+
+                            this.buffer = functionKeyword;
+                            this.nextCharacter();
+                            this.findTargetWithUpdate("{");
+
+                            // if it fits, start logging the definition
+                            const match = this.functionRegex.exec(this.buffer);
+                            if (match !== null) {
+                                const functionSignature = this.buffer.slice(match.index, this.buffer.length);
+                                const functionName = functionSignature.split("(")[0].slice("function ".length);
+
+                                this.scopeManager.setFunction(functionSignature);
+                                currentFunction.signature = functionSignature;
+                                currentFunction.name = functionName;
+
+                                this.buffer = "";
+                                this.nextLine();
+                                continue;
+                            }
                         }
                     }
                 }
@@ -256,16 +250,13 @@ export class CParser {
 
             this.nextCharacter();
         }
-
         return functions;
     }
 }
 
-function getSources(rootPath: string): [string[], string[]] {
-    const headerRegex: RegExp = /.*\.h$/;
-    const sourceRegex: RegExp = /.*\.c$/;
+function getSources(rootPath: string): string[] {
+    const sourceRegex: RegExp = /.*\.ts$/;
 
-    const headers: string[] = [];
     const sources: string[] = [];
 
     function traverseDirectory(directoryPath: string) {
@@ -277,9 +268,7 @@ function getSources(rootPath: string): [string[], string[]] {
             const filePath: string = path.join(directoryPath, dirent.name);
 
             if (dirent.isFile()) {
-                if (headerRegex.test(dirent.name)) {
-                    headers.push(filePath);
-                } else if (sourceRegex.test(dirent.name)) {
+                if (sourceRegex.test(dirent.name) && !dirent.name.includes(".test.")) {
                     sources.push(filePath);
                 }
             } else if (dirent.isDirectory()) {
@@ -290,31 +279,14 @@ function getSources(rootPath: string): [string[], string[]] {
 
     traverseDirectory(rootPath);
 
-    return [headers, sources];
-}
-
-function getImports(lines: string[]): string[] {
-    const imports: string[] = [];
-
-    for (const line of lines) {
-        if (line.length > 8 && line.slice(0, 8) === "#include") {
-            const nameStart: number = findAfterIndex(line, 8, '<"');
-            const nameEnd: number = findAfterIndex(line, nameStart + 1, '>"');
-
-            if (nameStart > 0 && nameEnd > 0 && nameEnd < line.length) {
-                imports.push(line.slice(nameStart, nameEnd));
-            }
-        }
-    }
-
-    return imports;
+    return sources;
 }
 
 function processFile(functionGraph: graphs.FunctionGraph, filepath: string, verbose: number): void {
     const filename: string = filenameFromPath(filepath);
     const lines: string[] = getLines(filepath);
 
-    let parser = new CParser(lines);
+    let parser = new TypeScriptParser(lines);
     const functions = parser.parse();
 
     // Add the functions to the graph
@@ -329,17 +301,9 @@ function processFile(functionGraph: graphs.FunctionGraph, filepath: string, verb
 }
 
 export function buildGraphs(rootPath: string, verbose: number): graphs.FunctionGraph {
-    const [headers, sources] = getSources(rootPath);
+    const sources = getSources(rootPath);
 
     const functionGraph = new graphs.FunctionGraph(rootPath);
-
-    for (const header of headers) {
-        if (verbose > 0) {
-            console.log("processing file: " + header);
-        }
-
-        processFile(functionGraph, header, verbose);
-    }
 
     for (const source of sources) {
         if (verbose > 0) {

@@ -1,28 +1,19 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as c from "./c";
-import * as ts from "./typescript";
-import * as java from "./java";
+import * as c from "./parsers/c";
+import * as ts from "./parsers/typescript";
+import * as py from "./parsers/python";
 import * as graphs from "../graphs/function_graph";
 
-const SUPPORTED_FILETYPES: Record<
-    string,
-    (rootPath: string, verbose: number) => graphs.FunctionGraph
-> = {
+const SUPPORTED_FILETYPES: Record<string, (rootPath: string, verbose: number) => graphs.FunctionGraph> = {
     c: c.buildGraphs,
     h: c.buildGraphs,
     ts: ts.buildGraphs,
-    java: java.buildGraphs,
+    py: py.buildGraphs
 };
 
-export function buildGraph(
-    rootPath: string,
-    verbose: number,
-    language: string
-): graphs.FunctionGraph {
-    let buildFunction:
-        | ((rootPath: string, verbose: number) => graphs.FunctionGraph)
-        | null = null;
+export function buildGraph(rootPath: string, verbose: number, language: string): graphs.FunctionGraph {
+    let buildFunction: ((rootPath: string, verbose: number) => graphs.FunctionGraph) | null = null;
 
     if (language.length === 0) {
         fs.readdirSync(rootPath).forEach((filename) => {

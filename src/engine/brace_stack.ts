@@ -1,77 +1,3 @@
-export class BraceStack {
-    protected stack: number;
-    protected begin: string;
-    protected end: string;
-    public quote: string;
-    public escape: boolean;
-
-    constructor(begin: string, end: string) {
-        this.stack = 0;
-
-        this.begin = begin;
-        this.end = end;
-
-        this.quote = "";
-        this.escape = false;
-    }
-
-    // flow:
-    //   - if we're escaped, ignore
-    //   - if we're entering or exiting quotes, adjust scope
-    //   - otherwise continue standard scope change
-    evalPush(c: string) {
-        if (this.escape) {
-            this.escape = false;
-        } else if (c === this.quote) {
-            this.quote = "";
-        } else if (this.quote === "") {
-            if (c === '"' || c === "'") {
-                this.quote = c;
-            } else if (c === this.begin) {
-                this.stack++;
-            } else if (c === this.end) {
-                this.stack--;
-            }
-        } else if (!this.escape && c === "\\") {
-            this.escape = true;
-        }
-    }
-
-    len() {
-        return this.stack;
-    }
-}
-
-export class ClassBraceStack extends BraceStack {
-    public className: string;
-
-    constructor(begin: string, end: string) {
-        super(begin, end);
-
-        this.className = "";
-    }
-
-    evalPush(c: string) {
-        if (this.className !== "") {
-            super.evalPush(c);
-
-            if (this.stack === 0) {
-                this.className = "";
-            }
-        }
-    }
-}
-
-function findMatch(c: string, array: Array<string>): boolean {
-    for (const s of array) {
-        if (c === s) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 function top(array: Array<string>): string {
     return array.length > 0 ? array[array.length - 1] : "";
 }
@@ -236,6 +162,149 @@ export class BracedScopeManager {
                 if (m.length === 1) {
                     this.multi = m;
                 }
+            }
+        }
+    }
+}
+
+export class PythonScopeManager {
+    private stack: Array<string>;
+
+    public currentScope = 0;
+    private buildingScope = true;
+    private pendingNewScope = false;
+
+    public classStart = 0;
+    public currentClass = "";
+
+    public functionStart = 0;
+    public currentFunction = "";
+
+    public inClass = false;
+    public inFunction = false;
+
+    public resetFunctionCallback = () => {};
+
+    // the only meaningful scope changes here come after :
+    // colons inside brackets need to be ignored
+    private beginSet = ["[", "{", "(", `"`, `'`];
+
+    private endSet = new Map<string, string>([
+        ["(", ")"],
+        ["{", "}"],
+        ["[", "]"],
+        [`"`, `"`],
+        [`'`, `'`]
+    ]);
+
+    constructor() {
+        this.stack = new Array<string>();
+    }
+
+    lineBreak() {
+        if (top(this.stack) === "#") {
+            this.stack.pop();
+        }
+
+        if (this.pendingNewScope) {
+            this.stack.push(String(this.currentScope));
+        }
+
+        this.buildingScope = !this.beginSet.includes(this.top());
+        this.currentScope = this.beginSet.includes(this.top()) ? this.currentScope : 0;
+    }
+
+    length(): number {
+        return this.stack.length;
+    }
+
+    top(): string {
+        return top(this.stack);
+    }
+
+    isQuote(c: string): boolean {
+        return c === `"` || c === `'` || c === "`";
+    }
+
+    inQuote(): boolean {
+        return this.isQuote(this.top());
+    }
+
+    inComment(): boolean {
+        const top = this.top();
+        return top === "#";
+    }
+
+    setClass(className: string) {
+        this.classStart = Math.max(0, this.stack.length - 1);
+        this.currentClass = className;
+        this.inClass = true;
+    }
+
+    setFunction(functionSignature: string) {
+        this.functionStart = Math.max(0, this.stack.length - 1);
+        this.currentFunction = functionSignature;
+        this.inFunction = true;
+    }
+
+    resetClass() {
+        this.classStart = 0;
+        this.currentClass = "";
+        this.inClass = false;
+    }
+
+    resetFunction() {
+        this.functionStart = 0;
+        this.currentFunction = "";
+        this.inFunction = false;
+    }
+
+    push(c: string) {
+        const last = top(this.stack);
+
+        if (c === "#") {
+            this.stack.push(c);
+        } else if (this.isQuote(last)) {
+            if (c === last) {
+                this.stack.pop();
+            }
+        }
+        // ignore everything on single-line comments
+        else if (last === "#") {
+            return;
+        }
+        // NOT in a quote AND NOT in a comment
+        // scope change isn't relevant here if we're in brackets
+        else if (this.buildingScope && !this.beginSet.includes(last)) {
+            if (c === " ") {
+                this.currentScope++;
+            } else {
+                this.buildingScope = false;
+            }
+        }
+        // new scope is established--check if we're in brackets
+        else {
+            if (this.beginSet.includes(last)) {
+                if (c === this.endSet.get(last)) {
+                    this.stack.pop();
+                }
+            }
+            // not in brackets--check if this is a colon
+            else if (c === ":") {
+                this.pendingNewScope = true;
+            } else if (/\w/.test(c)) {
+                this.pendingNewScope = false;
+            }
+
+            if (this.isQuote(c)) {
+                this.stack.push(c);
+            } else if (this.beginSet.includes(c)) {
+                this.stack.push(c);
+            }
+
+            // are we back in a parent scope?
+            while (this.stack.length > 0 && this.currentScope <= Number(this.top())) {
+                this.stack.pop();
             }
         }
     }

@@ -1,10 +1,10 @@
-import * as graphs from "../graphs/function_graph";
+import * as graphs from "../../graphs/function_graph";
 
 import * as fs from "fs";
 import * as path from "path";
-import { filenameFromPath, getLines } from "./parse_util";
-import { BracedScopeManager } from "../brace_stack";
-import { Function } from "../graphs/function_graph";
+import { filenameFromPath, getLines } from "../parse_util";
+import { PythonScopeManager } from "../../brace_stack";
+import { Function } from "../../graphs/function_graph";
 
 // even after the refactor this still feels terrible
 // is there something better than OOP here?
@@ -19,17 +19,18 @@ export class TypeScriptParser {
     private EOF: boolean = false;
 
     private lines: string[];
-    private scopeManager: BracedScopeManager;
+    private scopeManager: PythonScopeManager;
 
     private keywords: string[] = ["function", "if", "while", "for", "class"];
 
+    // these could probably be better
     private classRegex: RegExp = /class\s[\w\d]*(\s*[\w\d]*\s*)*{/;
     private functionRegex: RegExp = /function \w*\((\s*[\w\d]*:(\s*\w*\d*.*\s*))*\)(\s*:(\s*\w*\d*.*\s*))*{/;
     private classFunctionRegex: RegExp = /\w*\((\s*[\w\d]*:(\s*\w*\d*.*\s*))*\)(\s*:(\s*\w*\d*.*\s*))*\s*{/;
 
     constructor(toBeParsed: string[]) {
         this.lines = toBeParsed;
-        this.scopeManager = new BracedScopeManager();
+        this.scopeManager = new PythonScopeManager();
     }
 
     eofCheck() {
@@ -86,7 +87,7 @@ export class TypeScriptParser {
             while (cursor > -1 && distance < hardLimit) {
                 buffer = this.lines[lineNumber][cursor] + buffer;
 
-                if (buffer.includes("function ")) {
+                if (buffer.includes("def ")) {
                     return buffer;
                 }
 
@@ -118,6 +119,7 @@ export class TypeScriptParser {
         this.cursor = 0;
 
         this.EOF = this.line >= this.lines.length;
+        this.scopeManager.lineBreak();
     }
 
     nextCharacter() {
@@ -161,85 +163,7 @@ export class TypeScriptParser {
 
             this.scopeManager.push(c);
 
-            if (!(this.scopeManager.inQuote() || this.scopeManager.inComment())) {
-                if (currentFunction !== null && this.scopeManager.inFunction) {
-                    // continue getting the definition
-                    currentFunction.definition.push(line);
-
-                    for (const char of line) {
-                        this.scopeManager.push(char);
-                    }
-
-                    this.nextLine();
-                    continue;
-                } else {
-                    if (this.buffer.includes("class")) {
-                        // if we find the word `class`, find the next open bracket `{`
-                        // and check if it's an actual class definition
-                        if (!this.buffer.endsWith("{")) {
-                            this.findTargetWithUpdate("{");
-                        }
-
-                        const match = this.classRegex.test(this.buffer);
-                        if (match) {
-                            const index = Math.max(0, this.buffer.indexOf("class "));
-                            this.buffer = this.buffer.substring(index, this.buffer.length);
-                            const className = this.buffer.split(" ")[1];
-
-                            this.scopeManager.setClass(className);
-
-                            this.buffer = "";
-                            this.nextLine();
-                            continue;
-                        }
-                    } else if (c === "(") {
-                        if (this.scopeManager.inClass) {
-                            // find the start of the suspected function
-                            this.nextCharacter();
-                            this.buffer += c;
-                            this.findTargetWithUpdate("{");
-
-                            // does it fit the regex? if yes, start logging the definition
-                            const match = this.classFunctionRegex.exec(this.buffer);
-                            if (match !== null) {
-                                const functionSignature = this.buffer.slice(match.index, this.buffer.length);
-                                const functionName = functionSignature.split("(")[0];
-
-                                this.scopeManager.setFunction(functionSignature);
-                                currentFunction.signature = functionSignature;
-                                currentFunction.name = functionName;
-
-                                this.buffer = "";
-                                this.nextLine();
-                                continue;
-                            }
-                        } else {
-                            // look for function keyword
-                            // if it exists, is this a function signature?
-                            const functionKeyword = this.findFunctionPrepend();
-
-                            this.buffer = functionKeyword;
-                            this.nextCharacter();
-                            this.findTargetWithUpdate("{");
-
-                            // if it fits, start logging the definition
-                            const match = this.functionRegex.exec(this.buffer);
-                            if (match !== null) {
-                                const functionSignature = this.buffer.slice(match.index, this.buffer.length);
-                                const functionName = functionSignature.split("(")[0].slice("function ".length);
-
-                                this.scopeManager.setFunction(functionSignature);
-                                currentFunction.signature = functionSignature;
-                                currentFunction.name = functionName;
-
-                                this.buffer = "";
-                                this.nextLine();
-                                continue;
-                            }
-                        }
-                    }
-                }
-            }
+            // do the parse
 
             // NOTE: the following line is a (hopefully) guarantee that this.buffer.length >= 1
             this.buffer += c;
@@ -254,7 +178,7 @@ export class TypeScriptParser {
 }
 
 function getSources(rootPath: string): string[] {
-    const sourceRegex: RegExp = /.*\.ts$/;
+    const sourceRegex: RegExp = /.*\.py$/;
 
     const sources: string[] = [];
 

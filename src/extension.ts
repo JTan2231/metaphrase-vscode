@@ -20,21 +20,12 @@ function fileExists(directory: string, fileName: string): boolean {
     }
 }
 
-async function moveCursorToFunction(
-    functionNode: FunctionNode,
-    extension: string
-): Promise<void> {
+async function moveCursorToFunction(functionNode: FunctionNode, extension: string): Promise<void> {
     const files = await vscode.workspace.findFiles("**/*." + extension); // Change the file pattern as per your requirements
 
     for (const file of files) {
-        const document = await vscode.workspace.openTextDocument(
-            functionNode.filename
-        );
-        const editor = await vscode.window.showTextDocument(
-            document,
-            undefined,
-            true
-        );
+        const document = await vscode.workspace.openTextDocument(functionNode.filename);
+        const editor = await vscode.window.showTextDocument(document, undefined, true);
 
         const position = new vscode.Position(functionNode.definitionLine, 0);
         editor.selection = new vscode.Selection(position, position);
@@ -43,9 +34,7 @@ async function moveCursorToFunction(
         return;
     }
 
-    vscode.window.showInformationMessage(
-        `Function '${functionNode.name}' not found.`
-    );
+    vscode.window.showInformationMessage(`Function '${functionNode.name}' not found.`);
 }
 
 // Define an async function to retrieve the file list
@@ -86,20 +75,14 @@ export function activate(context: vscode.ExtensionContext) {
     // The command has been defined in the package.json file
     // Now provide the implementation of the command with registerCommand
     // The commandId parameter must match the command field in package.json
-    let disposable = vscode.commands.registerCommand(
-        "metaphrase.helloWorld",
-        () => {
-            // The code you place here will be executed every time your command is executed
-            // Display a message box to the user
-            vscode.window.showInformationMessage(
-                "Hello World from metaphrase!"
-            );
-        }
-    );
+    let disposable = vscode.commands.registerCommand("metaphrase.helloWorld", () => {
+        // The code you place here will be executed every time your command is executed
+        // Display a message box to the user
+        vscode.window.showInformationMessage("Hello World from metaphrase!");
+    });
 
     const buildContext = async (): Promise<FunctionGraph> => {
-        const paths: readonly vscode.WorkspaceFolder[] | undefined =
-            vscode.workspace.workspaceFolders;
+        const paths: readonly vscode.WorkspaceFolder[] | undefined = vscode.workspace.workspaceFolders;
         let rootPath = paths !== undefined ? paths[0].uri.path : "";
         if (process.platform === "win32") {
             rootPath = rootPath.slice(1);
@@ -146,102 +129,80 @@ export function activate(context: vscode.ExtensionContext) {
             } catch (e) {
                 console.log(e);
             }
-            console.log(
-                "graph built; serializing to " + rootPath + "/metaphrase.json"
-            );
+            console.log("graph built; serializing to " + rootPath + "/metaphrase.json");
 
-            functionGraph.serialize(rootPath + "/metaphrase.json");
+            //functionGraph.serialize(rootPath + "/metaphrase.json");
         }
 
         functionGraph.printCount();
-        vscode.window.showInformationMessage(
-            `catalogued ${functionGraph.getCount()} functions`
-        );
+        vscode.window.showInformationMessage(`catalogued ${functionGraph.getCount()} functions`);
 
         return functionGraph;
     };
 
-    const buildContextCommand = vscode.commands.registerCommand(
-        "metaphrase.buildContext",
-        buildContext
-    );
-    const generateEmbeddings = vscode.commands.registerCommand(
-        "metaphrase.generateEmbeddings",
-        async () => {
-            const functionGraph = await buildContext();
+    const buildContextCommand = vscode.commands.registerCommand("metaphrase.buildContext", buildContext);
+    const generateEmbeddings = vscode.commands.registerCommand("metaphrase.generateEmbeddings", async () => {
+        const functionGraph = await buildContext();
 
-            for (const [key, f] of Object.entries(functionGraph.functions)) {
-                console.log(`generating embedding for ${key}`);
-                const definition = f.definition.join("\n");
-                functionGraph.functions[key].embedding = await getEmbedding(
-                    definition
-                );
-            }
-
-            functionGraph.serialize(
-                functionGraph.repository + "/metaphrase.json"
-            );
+        for (const [key, f] of Object.entries(functionGraph.functions)) {
+            console.log(`generating embedding for ${key}`);
+            const definition = f.definition.join("\n");
+            functionGraph.functions[key].embedding = await getEmbedding(definition);
         }
-    );
 
-    const queryRepository = vscode.commands.registerCommand(
-        "metaphrase.queryRepository",
-        async () => {
-            const prompt = await vscode.window.showInputBox({
-                prompt: "What do you want to know?",
-                placeHolder: "Where do we handle authentication?",
-            });
+        functionGraph.serialize(functionGraph.repository + "/metaphrase.json");
+    });
 
-            const functionGraph = await buildContext();
+    const queryRepository = vscode.commands.registerCommand("metaphrase.queryRepository", async () => {
+        const prompt = await vscode.window.showInputBox({
+            prompt: "What do you want to know?",
+            placeHolder: "Where do we handle authentication?"
+        });
 
-            if (prompt) {
-                vscode.window.showInformationMessage(
-                    `Prompting with: ${prompt}`
-                );
-                const queryEmbed = await getEmbedding(prompt);
+        const functionGraph = await buildContext();
 
-                let mostSimilarFunction: FunctionNode = {
-                    filename: "",
-                    signature: "",
-                    name: "",
-                    definition: [],
-                    definitionLine: 0,
-                    declarationLine: 0,
-                    embedding: new Embedding([]),
-                };
-                let highestSimilarity = 0;
-                for (const [, f] of Object.entries(functionGraph.functions)) {
-                    const similarity = dot(queryEmbed, f.embedding);
-                    if (similarity > highestSimilarity) {
-                        mostSimilarFunction = f;
-                        highestSimilarity = similarity;
-                    }
+        if (prompt) {
+            vscode.window.showInformationMessage(`Prompting with: ${prompt}`);
+            const queryEmbed = await getEmbedding(prompt);
+
+            let mostSimilarFunction: FunctionNode = {
+                filename: "",
+                signature: "",
+                name: "",
+                definition: [],
+                definitionLine: 0,
+                declarationLine: 0,
+                embedding: new Embedding([])
+            };
+            let highestSimilarity = 0;
+            for (const [, f] of Object.entries(functionGraph.functions)) {
+                const similarity = dot(queryEmbed, f.embedding);
+                if (similarity > highestSimilarity) {
+                    mostSimilarFunction = f;
+                    highestSimilarity = similarity;
                 }
-
-                vscode.window.showInformationMessage(
-                    `Most similar function is ${mostSimilarFunction.name} with similarity ${highestSimilarity}`
-                );
-
-                moveCursorToFunction(mostSimilarFunction, "c");
-            } else {
-                vscode.window.showWarningMessage("No input provided.");
-            }
-        }
-    );
-
-    const showFunctions = vscode.commands.registerCommand(
-        "metaphrase.showFunctions",
-        async () => {
-            const functionGraph = await buildContext();
-            let functions: string[] = [];
-            for (const f in functionGraph.functions) {
-                functions.push(f);
             }
 
-            const message = functions.join("\n");
-            vscode.window.showInformationMessage(message);
+            vscode.window.showInformationMessage(
+                `Most similar function is ${mostSimilarFunction.name} with similarity ${highestSimilarity}`
+            );
+
+            moveCursorToFunction(mostSimilarFunction, "c");
+        } else {
+            vscode.window.showWarningMessage("No input provided.");
         }
-    );
+    });
+
+    const showFunctions = vscode.commands.registerCommand("metaphrase.showFunctions", async () => {
+        const functionGraph = await buildContext();
+        let functions: string[] = [];
+        for (const f in functionGraph.functions) {
+            functions.push(f);
+        }
+
+        const message = functions.join("\n");
+        vscode.window.showInformationMessage(message);
+    });
 
     context.subscriptions.push(disposable);
     context.subscriptions.push(buildContextCommand);
@@ -251,4 +212,4 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 // This method is called when your extension is deactivated
-export function deactivate() { }
+export function deactivate() {}
