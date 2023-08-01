@@ -169,6 +169,7 @@ export class BracedScopeManager {
 
 export class PythonScopeManager {
     private stack: Array<string>;
+    private scopeNameStack: Map<string, string>;
 
     public currentScope = 0;
     private buildingScope = true;
@@ -184,6 +185,7 @@ export class PythonScopeManager {
     public inFunction = false;
 
     public resetFunctionCallback = () => {};
+    public newScopeCallback = () => {};
 
     // the only meaningful scope changes here come after :
     // colons inside brackets need to be ignored
@@ -199,6 +201,7 @@ export class PythonScopeManager {
 
     constructor() {
         this.stack = new Array<string>();
+        this.scopeNameStack = new Map<string, string>();
     }
 
     lineBreak() {
@@ -208,10 +211,22 @@ export class PythonScopeManager {
 
         if (this.pendingNewScope) {
             this.stack.push(String(this.currentScope));
+            this.newScopeCallback();
         }
 
         this.buildingScope = !this.beginSet.includes(this.top());
         this.currentScope = this.beginSet.includes(this.top()) ? this.currentScope : 0;
+    }
+
+    addNamedScope(name: string) {
+        this.scopeNameStack.set(String(this.currentScope), name);
+    }
+
+    getNamedScope() {
+        return [...this.scopeNameStack]
+            .sort((x, y) => Number(x[0]) - Number(y[0]))
+            .map((x) => x[1])
+            .join(".");
     }
 
     length(): number {
@@ -254,7 +269,7 @@ export class PythonScopeManager {
     }
 
     resetFunction() {
-        this.functionStart = 0;
+        this.functionStart = -1;
         this.currentFunction = "";
         this.inFunction = false;
     }
@@ -296,15 +311,21 @@ export class PythonScopeManager {
                 this.pendingNewScope = false;
             }
 
-            if (this.isQuote(c)) {
-                this.stack.push(c);
-            } else if (this.beginSet.includes(c)) {
+            if (this.isQuote(c) || this.beginSet.includes(c)) {
                 this.stack.push(c);
             }
 
             // are we back in a parent scope?
             while (this.stack.length > 0 && this.currentScope <= Number(this.top())) {
-                this.stack.pop();
+                const lastScope = this.stack.pop()!;
+                if (this.scopeNameStack.has(lastScope)) {
+                    this.scopeNameStack.delete(lastScope);
+                }
+
+                if (this.stack.length === this.functionStart) {
+                    this.resetFunction();
+                    this.resetFunctionCallback();
+                }
             }
         }
     }

@@ -3,7 +3,7 @@ import * as graphs from "../../graphs/function_graph";
 import * as fs from "fs";
 import * as path from "path";
 import { filenameFromPath, getLines } from "../parse_util";
-import { PythonScopeManager } from "../../brace_stack";
+import { PythonScopeManager } from "../../scope_managers";
 import { Function } from "../../graphs/function_graph";
 
 // even after the refactor this still feels terrible
@@ -76,7 +76,7 @@ export class TypeScriptParser {
     // look for the keyword function backward from the current position
     // up to distance `hardLimit`
     findFunctionPrepend(): string {
-        const hardLimit = 50;
+        const hardLimit = 1000;
 
         let cursor = this.cursor;
         let lineNumber = this.line;
@@ -87,7 +87,7 @@ export class TypeScriptParser {
             while (cursor > -1 && distance < hardLimit) {
                 buffer = this.lines[lineNumber][cursor] + buffer;
 
-                if (buffer.includes("def ")) {
+                if (buffer.includes("def ") || buffer.includes("class ")) {
                     return buffer;
                 }
 
@@ -142,24 +142,66 @@ export class TypeScriptParser {
     parse() {
         const functions: Function[] = [];
 
-        let currentFunction = new Function();
+        let currentFunction: Function | undefined;
         const functionCallback = () => {
-            currentFunction.definition.unshift(currentFunction.signature);
-            currentFunction.signature = currentFunction.signature.slice(0, currentFunction.signature.length - 1).trim();
+            if (currentFunction) {
+                currentFunction.definition.unshift(currentFunction.signature);
+                currentFunction.signature = currentFunction.signature
+                    .slice(0, currentFunction.signature.length - 1)
+                    .trim();
 
-            if (this.scopeManager.currentClass !== "") {
-                currentFunction.name = this.scopeManager.currentClass + "." + currentFunction.name;
+                if (this.scopeManager.currentClass !== "") {
+                    currentFunction.name = this.scopeManager.currentClass + "." + currentFunction.name;
+                }
+
+                currentFunction.definition = currentFunction.definition.slice(0, currentFunction.definition.length - 1);
+
+                functions.push(currentFunction);
+                currentFunction = undefined;
             }
+        };
 
-            functions.push(currentFunction);
-            currentFunction = new Function();
+        const newScopeCallback = () => {
+            const prepend = this.findFunctionPrepend();
+
+            // did we find a new function?
+            if (
+                (prepend.includes("def ") || prepend.includes("class ")) &&
+                !(prepend.includes("if ") || prepend.includes("while ") || prepend.includes("for "))
+            ) {
+                const functionSignature = prepend;
+                const functionName = functionSignature.split(" ")[1].split(":")[0].split("(")[0];
+
+                this.scopeManager.addNamedScope(functionName);
+
+                // don't bother logging nested functions
+                if (currentFunction === undefined && !prepend.includes("class ")) {
+                    currentFunction = new Function();
+                    currentFunction.signature = functionSignature;
+                    currentFunction.name = this.scopeManager.getNamedScope();
+
+                    this.scopeManager.setFunction(functionSignature);
+                }
+            }
         };
 
         this.scopeManager.resetFunctionCallback = functionCallback;
+        this.scopeManager.newScopeCallback = newScopeCallback;
 
         while (!this.eofCheck()) {
             const line = this.lines[this.line];
             const c = line[this.cursor];
+
+            if (currentFunction) {
+                currentFunction.definition.push(line);
+
+                for (const char of line) {
+                    this.scopeManager.push(char);
+                }
+
+                this.nextLine();
+                continue;
+            }
 
             this.scopeManager.push(c);
 
@@ -173,6 +215,11 @@ export class TypeScriptParser {
 
             this.nextCharacter();
         }
+
+        if (currentFunction) {
+            functionCallback();
+        }
+
         return functions;
     }
 }

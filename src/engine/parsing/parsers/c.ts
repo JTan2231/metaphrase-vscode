@@ -2,7 +2,7 @@ import * as graphs from "../../graphs/function_graph";
 
 import * as fs from "fs";
 import * as path from "path";
-import { BracedScopeManager } from "../../brace_stack";
+import { BracedScopeManager } from "../../scope_managers";
 import { filenameFromPath, findAfterIndex, getLines } from "../parse_util";
 import { Function } from "../../graphs/function_graph";
 

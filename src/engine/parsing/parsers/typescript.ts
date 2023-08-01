@@ -3,7 +3,7 @@ import * as graphs from "../../graphs/function_graph";
 import * as fs from "fs";
 import * as path from "path";
 import { filenameFromPath, getLines } from "../parse_util";
-import { BracedScopeManager } from "../../brace_stack";
+import { BracedScopeManager } from "../../scope_managers";
 import { Function } from "../../graphs/function_graph";
 
 // even after the refactor this still feels terrible

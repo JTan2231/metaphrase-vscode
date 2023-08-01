@@ -131,7 +131,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
             console.log("graph built; serializing to " + rootPath + "/metaphrase.json");
 
-            //functionGraph.serialize(rootPath + "/metaphrase.json");
+            functionGraph.serialize(rootPath + "/metaphrase.json");
         }
 
         functionGraph.printCount();
