@@ -1,11 +1,12 @@
 import { readFileSync } from "fs";
+import { sep } from "path";
 
 export function isLetter(char: string): boolean {
     return char.length === 1 && char.match(/[a-z]/i) !== null;
 }
 
 export function filenameFromPath(filepath: string): string {
-    const split: string[] = filepath.split("/");
+    const split: string[] = filepath.split(sep);
     return split[split.length - 1];
 }
 

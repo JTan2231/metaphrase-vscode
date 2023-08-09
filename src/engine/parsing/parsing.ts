@@ -1,8 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as c from "./c";
-import * as ts from "./typescript";
-import * as java from "./java";
+import * as c from "./parsers/c";
+import * as ts from "./parsers/typescript";
+import * as py from "./parsers/python";
 import * as graphs from "../graphs/function_graph";
 
 const SUPPORTED_FILETYPES: Record<
@@ -10,9 +10,12 @@ const SUPPORTED_FILETYPES: Record<
     (rootPath: string, verbose: number) => graphs.FunctionGraph
 > = {
     c: c.buildGraphs,
+    cc: c.buildGraphs,
+    cpp: c.buildGraphs,
     h: c.buildGraphs,
+    hpp: c.buildGraphs,
     ts: ts.buildGraphs,
-    java: java.buildGraphs,
+    py: py.buildGraphs,
 };
 
 export function buildGraph(

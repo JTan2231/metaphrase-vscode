@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { Embedding } from "../embedding";
 
-export interface Function {
+export class Function {
     filename: string;
     signature: string;
     name: string;
@@ -10,6 +10,17 @@ export interface Function {
     declarationLine: number;
     calls: { [key: string]: boolean };
     embedding: Embedding;
+
+    constructor() {
+        this.filename = "";
+        this.signature = "";
+        this.name = "";
+        this.definition = [];
+        this.definitionLine = 0;
+        this.declarationLine = 0;
+        this.calls = {};
+        this.embedding = new Embedding([]);
+    }
 }
 
 export interface FunctionNode {
@@ -46,8 +57,9 @@ export class FunctionGraph {
 
     addFunction(f: Function): void {
         if (!(f.name in this.functions)) {
-            this.functions[f.name] = {
-                name: f.name,
+            const name = f.filename + "/" + f.name;
+            this.functions[name] = {
+                name: name,
                 filename: f.filename,
                 signature: f.signature,
                 definition: f.definition,
