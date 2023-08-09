@@ -19,7 +19,7 @@ export class CParser {
     private keywords: string[] = ["function", "if", "while", "for", "class"];
 
     // this regex could probably be better
-    private functionRegex: RegExp = /\w* \w*\(([\w\*]*\s*[\w\*]*,\s*)*([\w\*]*\s*[\w\*]*)?\)\s*{/;
+    private functionRegex: RegExp = /[\w,\*]* [\w>:]*\([\s\S]*\)\s*(const)?\s*{/;
 
     constructor(toBeParsed: string[]) {
         this.lines = toBeParsed;
@@ -69,7 +69,7 @@ export class CParser {
     // since the return type can be aliased, just look for the most recent word
     // behind the function name
     findFunctionPrepend(): string {
-        const hardLimit = 50;
+        const hardLimit = 1000;
 
         let buffer = "";
         let cursor = this.cursor;
@@ -195,7 +195,6 @@ export class CParser {
 
         let currentFunction = new Function();
         const functionCallback = () => {
-            currentFunction.definition.unshift(currentFunction.signature);
             currentFunction.signature = currentFunction.signature.slice(0, currentFunction.signature.length - 1).trim();
 
             functions.push(currentFunction);
@@ -215,14 +214,15 @@ export class CParser {
                     // continue getting the definition
                     currentFunction.definition.push(line);
 
-                    for (const char of line) {
-                        this.scopeManager.push(char);
+                    for (let i = this.cursor; i < line.length; i++) {
+                        this.scopeManager.push(line[i]);
                     }
 
                     this.nextLine();
                     continue;
                 } else {
                     if (c === "(") {
+
                         // look for function keyword
                         // if it exists, is this a function signature?
                         const functionPrepend = this.findFunctionPrepend();
@@ -241,7 +241,7 @@ export class CParser {
                             currentFunction.name = functionName;
 
                             this.buffer = "";
-                            this.nextLine();
+                            this.nextCharacter();
                             continue;
                         }
                     }
