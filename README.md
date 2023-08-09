@@ -3,9 +3,9 @@ Navigate and understand code with GPT in VSCode.
 
 ## Language Support
 - C
+- C++ (largely unverified)
 - TypeScript
-- Golang
-- Python (in progress)
+- Python
 
 ## Commands
 - Build Context
@@ -17,3 +17,7 @@ Navigate and understand code with GPT in VSCode.
   - e.g. "Where are the eigenvalues being calculated?"
 - Show Functions
   - Display a list of catalogued functions
+
+## Potential TODO
+- More GPT code integration? (e.g. explanation, generation, etc.)
+- Other languages
