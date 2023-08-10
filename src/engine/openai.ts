@@ -1,11 +1,9 @@
 import axios from "axios";
 import { Embedding } from "./embedding";
 
-const apiKey = "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";
+const apiKey = "";
 
-export async function getEmbedding(
-    text: string
-): Promise<[boolean, Embedding]> {
+export async function getEmbedding(text: string): Promise<[boolean, Embedding]> {
     const apiUrl = "https://api.openai.com/v1/embeddings";
 
     try {
@@ -35,9 +33,7 @@ export async function getEmbedding(
     }
 }
 
-export async function getEmbeddingsBatch(
-    keyValues: [string, string][]
-): Promise<[number, Embedding[]]> {
+export async function getEmbeddingsBatch(keyValues: [string, string][]): Promise<[number, Embedding[]]> {
     const apiUrl = "https://api.openai.com/v1/embeddings";
 
     try {
@@ -60,9 +56,7 @@ export async function getEmbeddingsBatch(
             }
         );
 
-        console.log(
-            `contacted ${apiUrl} with status ${response.status}: ${response.statusText}`
-        );
+        console.log(`contacted ${apiUrl} with status ${response.status}: ${response.statusText}`);
 
         const embeddings = response.data.data.map((embed: any) => {
             const e = new Embedding(embed.embedding);
