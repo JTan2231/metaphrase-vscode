@@ -1,6 +1,6 @@
-# Metaphrase - AI Code Context Builder
+# Metaphrase - AI Code Search
 
-Navigate and understand code with GPT in VSCode.
+Navigate and understand code with GPT in VSCode. Metaphrase breaks down programs into a list a functions, then creates embeddings for each of those functions with [OpenAI's Embedding API](https://platform.openai.com/docs/guides/embeddings).
 
 ## Language Support
 
@@ -12,9 +12,9 @@ Navigate and understand code with GPT in VSCode.
 ## Commands
 
 -   Build Context
-    -   Creates `metaphrase.json` in the target folder to store functions, definitions, and embeddings.
+    -   Creates `metaphrase.json` in the target folder to store functions, and defintions.
 -   Generate Embeddings
-    -   Populates `metaphrase.json` with embeddings using [OpenAI's Embedding API](https://platform.openai.com/docs/guides/embeddings).
+    -   Retrieves the embeddings from OpenAI's API using the parsed functions.
 -   Query Repository
     -   Takes user query, embeds, then searches the existing embeddings for the closest match.
     -   e.g. "Where are the eigenvalues being calculated?"
@@ -23,5 +23,9 @@ Navigate and understand code with GPT in VSCode.
 
 ## Potential TODO
 
+-   Cleanup for publishing
 -   More GPT code integration? (e.g. explanation, generation, etc.)
 -   Other languages
+-   Update changed function embeddings (instead of all or nothing)
+-   Better VSCode GUI usage
+-   Options in query results
