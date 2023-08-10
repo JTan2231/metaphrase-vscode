@@ -5,6 +5,7 @@ import * as path from "path";
 import { BracedScopeManager } from "../../scope_managers";
 import { filenameFromPath, findAfterIndex, getLines } from "../parse_util";
 import { Function } from "../../graphs/function_graph";
+import { toPosix } from "../../string";
 
 export class CParser {
     private buffer: string = "";
@@ -222,7 +223,6 @@ export class CParser {
                     continue;
                 } else {
                     if (c === "(") {
-
                         // look for function keyword
                         // if it exists, is this a function signature?
                         const functionPrepend = this.findFunctionPrepend();
@@ -237,6 +237,8 @@ export class CParser {
                             const functionName = functionSignature.split(" ")[1].split("(")[0];
 
                             this.scopeManager.setFunction(functionSignature);
+
+                            currentFunction.definitionLine = this.line;
                             currentFunction.signature = functionSignature;
                             currentFunction.name = functionName;
 
@@ -270,7 +272,7 @@ function getSources(rootPath: string): [string[], string[]] {
 
     function traverseDirectory(directoryPath: string) {
         const dirents: fs.Dirent[] = fs.readdirSync(directoryPath, {
-            withFileTypes: true
+            withFileTypes: true,
         });
 
         for (const dirent of dirents) {
@@ -311,7 +313,6 @@ function getImports(lines: string[]): string[] {
 }
 
 function processFile(functionGraph: graphs.FunctionGraph, filepath: string, verbose: number): void {
-    const filename: string = filenameFromPath(filepath);
     const lines: string[] = getLines(filepath);
 
     let parser = new CParser(lines);
@@ -319,7 +320,7 @@ function processFile(functionGraph: graphs.FunctionGraph, filepath: string, verb
 
     // Add the functions to the graph
     for (const f of functions) {
-        f.filename = filename;
+        f.filename = filepath;
         if (verbose > 1) {
             console.log("  - processing function: " + f.name);
         }
@@ -338,7 +339,7 @@ export function buildGraphs(rootPath: string, verbose: number): graphs.FunctionG
             console.log("processing file: " + header);
         }
 
-        processFile(functionGraph, header, verbose);
+        processFile(functionGraph, toPosix(header), verbose);
     }
 
     for (const source of sources) {
@@ -346,7 +347,7 @@ export function buildGraphs(rootPath: string, verbose: number): graphs.FunctionG
             console.log("processing file: " + source);
         }
 
-        processFile(functionGraph, source, verbose);
+        processFile(functionGraph, toPosix(source), verbose);
     }
 
     return functionGraph;

@@ -5,8 +5,9 @@ import { buildGraph } from "./engine/parsing/parsing";
 import * as fs from "fs";
 import * as path from "path";
 import { FunctionGraph, FunctionNode } from "./engine/graphs/function_graph";
-import { getEmbedding } from "./engine/openai";
-import { Embedding, dot } from "./engine/embedding";
+import { getEmbedding, getEmbeddingsBatch } from "./engine/openai";
+import { Embedding, EmbeddingMetadata, dot } from "./engine/embedding";
+import { replaceAll, toPosix } from "./engine/string";
 
 function fileExists(directory: string, fileName: string): boolean {
     const filePath: string = path.join(directory, fileName);
@@ -20,21 +21,12 @@ function fileExists(directory: string, fileName: string): boolean {
     }
 }
 
-async function moveCursorToFunction(
-    functionNode: FunctionNode,
-    extension: string
-): Promise<void> {
+async function moveCursorToFunction(functionNode: FunctionNode, extension: string): Promise<void> {
     const files = await vscode.workspace.findFiles("**/*." + extension); // Change the file pattern as per your requirements
 
     for (const file of files) {
-        const document = await vscode.workspace.openTextDocument(
-            functionNode.filename
-        );
-        const editor = await vscode.window.showTextDocument(
-            document,
-            undefined,
-            true
-        );
+        const document = await vscode.workspace.openTextDocument(functionNode.filename);
+        const editor = await vscode.window.showTextDocument(document, undefined, true);
 
         const position = new vscode.Position(functionNode.definitionLine, 0);
         editor.selection = new vscode.Selection(position, position);
@@ -43,9 +35,7 @@ async function moveCursorToFunction(
         return;
     }
 
-    vscode.window.showInformationMessage(
-        `Function '${functionNode.name}' not found.`
-    );
+    vscode.window.showInformationMessage(`Function '${functionNode.name}' not found.`);
 }
 
 // Define an async function to retrieve the file list
@@ -86,24 +76,21 @@ export function activate(context: vscode.ExtensionContext) {
     // The command has been defined in the package.json file
     // Now provide the implementation of the command with registerCommand
     // The commandId parameter must match the command field in package.json
-    let disposable = vscode.commands.registerCommand(
-        "metaphrase.helloWorld",
-        () => {
-            // The code you place here will be executed every time your command is executed
-            // Display a message box to the user
-            vscode.window.showInformationMessage(
-                "Hello World from metaphrase!"
-            );
-        }
-    );
+    let disposable = vscode.commands.registerCommand("metaphrase.helloWorld", () => {
+        // The code you place here will be executed every time your command is executed
+        // Display a message box to the user
+        vscode.window.showInformationMessage("Hello World from metaphrase!");
+    });
 
     const buildContext = async (): Promise<FunctionGraph> => {
-        const paths: readonly vscode.WorkspaceFolder[] | undefined =
-            vscode.workspace.workspaceFolders;
+        const paths: readonly vscode.WorkspaceFolder[] | undefined = vscode.workspace.workspaceFolders;
         let rootPath = paths !== undefined ? paths[0].uri.path : "";
         if (process.platform === "win32") {
             rootPath = rootPath.slice(1);
         }
+
+        // convert all paths to posix
+        rootPath = replaceAll(rootPath, "\\", "/");
 
         const fileList = await getFileList();
         let extensionCounts = new Map<string, number>();
@@ -146,75 +133,133 @@ export function activate(context: vscode.ExtensionContext) {
             } catch (e) {
                 console.log(e);
             }
-            console.log(
-                "graph built; serializing to " + rootPath + "/metaphrase.json"
-            );
+            console.log("graph built; serializing to " + rootPath + "/metaphrase.json");
 
             functionGraph.serialize(rootPath + "/metaphrase.json");
         }
 
         functionGraph.printCount();
-        vscode.window.showInformationMessage(
-            `catalogued ${functionGraph.getCount()} functions`
-        );
+        vscode.window.showInformationMessage(`catalogued ${functionGraph.getCount()} functions`);
 
         return functionGraph;
     };
 
-    const buildContextCommand = vscode.commands.registerCommand(
-        "metaphrase.buildContext",
-        buildContext
-    );
-    const generateEmbeddings = vscode.commands.registerCommand(
-        "metaphrase.generateEmbeddings",
-        async () => {
-            const functionGraph = await buildContext();
+    const buildContextCommand = vscode.commands.registerCommand("metaphrase.buildContext", buildContext);
+    const generateEmbeddings = vscode.commands.registerCommand("metaphrase.generateEmbeddings", async () => {
+        const functionGraph = await buildContext();
+        functionGraph.repository = toPosix(functionGraph.repository);
 
-            for (const [key, f] of Object.entries(functionGraph.functions)) {
-                console.log(`generating embedding for ${key}`);
-                const definition = f.definition.join("\n");
-                functionGraph.functions[key].embedding = await getEmbedding(
-                    definition
-                );
+        const embeddingsPath = functionGraph.repository + "/.embeddings";
+        fs.mkdir(embeddingsPath, (err) => {
+            if (err) {
+                console.error("Error creating directory:", err);
+            } else {
+                console.log("Directory created successfully.");
+            }
+        });
+
+        const batchSize = 50;
+        let batchMap = {} as any;
+
+        const entries = Object.entries(functionGraph.functions);
+
+        let tokenCount = 0;
+        let batchNumber = 0;
+        for (let i = 0; i < entries.length; i++, batchNumber++) {
+            const batch = [] as [string, string][];
+            for (let j = 0; i < entries.length && j < batchSize; j++, i++) {
+                batch.push([toPosix(entries[i][0]), entries[i][1].definition.join("\n")]);
             }
 
-            functionGraph.serialize(
-                functionGraph.repository + "/metaphrase.json"
-            );
-        }
-    );
+            const [tokens, embeddings] = await getEmbeddingsBatch(batch);
 
-    const queryRepository = vscode.commands.registerCommand(
-        "metaphrase.queryRepository",
-        async () => {
-            const prompt = await vscode.window.showInputBox({
-                prompt: "What do you want to know?",
-                placeHolder: "Where do we handle authentication?",
+            const obj = {} as any;
+            for (let j = 0; j < batch.length; j++) {
+                obj[batch[j][0]] = embeddings[j];
+
+                batchMap[batch[j][0]] = {
+                    batchNumber,
+                    index: j,
+                };
+            }
+
+            const filename = batchNumber + ".json";
+            fs.writeFileSync(embeddingsPath + "/" + filename, JSON.stringify(obj), {
+                flag: "w",
             });
 
-            const functionGraph = await buildContext();
+            tokenCount += tokens;
+            console.log(`${i + 1} / ${entries.length} embeddings saved. ${tokenCount}`);
+        }
 
-            if (prompt) {
-                vscode.window.showInformationMessage(
-                    `Prompting with: ${prompt}`
-                );
-                const queryEmbed = await getEmbedding(prompt);
+        const batchMeta = {
+            batchSize,
+            batchMapping: batchMap,
+        } as EmbeddingMetadata;
 
-                let mostSimilarFunction: FunctionNode = {
-                    filename: "",
-                    signature: "",
-                    name: "",
-                    definition: [],
-                    definitionLine: 0,
-                    declarationLine: 0,
-                    embedding: new Embedding([]),
-                };
-                let highestSimilarity = 0;
-                for (const [, f] of Object.entries(functionGraph.functions)) {
-                    const similarity = dot(queryEmbed, f.embedding);
-                    if (similarity > highestSimilarity) {
-                        mostSimilarFunction = f;
-                        highestSimilarity = similarity;
+        fs.writeFileSync(embeddingsPath + "/batchMeta.json", JSON.stringify(batchMeta), {
+            flag: "w",
+        });
+    });
+
+    const queryRepository = vscode.commands.registerCommand("metaphrase.queryRepository", async () => {
+        const prompt = await vscode.window.showInputBox({
+            prompt: "What do you want to know?",
+            placeHolder: "Where do we handle authentication?",
+        });
+
+        const functionGraph = await buildContext();
+        const embeddings = {} as any;
+
+        try {
+            const files = await fs.promises.readdir(functionGraph.repository + "/.embeddings");
+
+            for (const file of files) {
+                const filePath = path.join(functionGraph.repository + "/.embeddings", file);
+                const data = await fs.promises.readFile(filePath, "utf8");
+
+                try {
+                    const jsonObject = JSON.parse(data);
+                    Object.assign(embeddings, jsonObject);
+                } catch (parseError) {
+                    console.error("Error parsing JSON:", parseError);
+                }
+            }
+        } catch (err) {
+            console.error("Error reading directory:", err);
+        }
+
+        if (prompt) {
+            vscode.window.showInformationMessage(`Prompting with: ${prompt}`);
+            const [success, queryEmbed] = await getEmbedding(prompt);
+
+            let mostSimilarFunction: FunctionNode = {
+                filename: "",
+                signature: "",
+                name: "",
+                definition: [],
+                definitionLine: 0,
+                declarationLine: 0,
+            };
+
+            let highestSimilarity = 0;
+
+            if (success) {
+                for (const [name, embed] of Object.entries(embeddings)) {
+                    if (name.includes("batch")) {
+                        continue;
+                    }
+
+                    try {
+                        const score = dot(embed as Embedding, queryEmbed);
+
+                        if (score > highestSimilarity) {
+                            highestSimilarity = score;
+                            mostSimilarFunction = functionGraph.functions[name];
+                        }
+                    } catch (error) {
+                        console.log(error);
+                        console.log(embed);
                     }
                 }
 
@@ -224,24 +269,23 @@ export function activate(context: vscode.ExtensionContext) {
 
                 moveCursorToFunction(mostSimilarFunction, "c");
             } else {
-                vscode.window.showWarningMessage("No input provided.");
+                vscode.window.showInformationMessage("Error getting query embedding.");
             }
+        } else {
+            vscode.window.showWarningMessage("No input provided.");
         }
-    );
+    });
 
-    const showFunctions = vscode.commands.registerCommand(
-        "metaphrase.showFunctions",
-        async () => {
-            const functionGraph = await buildContext();
-            let functions: string[] = [];
-            for (const f in functionGraph.functions) {
-                functions.push(f);
-            }
-
-            const message = functions.join("\n");
-            vscode.window.showInformationMessage(message);
+    const showFunctions = vscode.commands.registerCommand("metaphrase.showFunctions", async () => {
+        const functionGraph = await buildContext();
+        let functions: string[] = [];
+        for (const f in functionGraph.functions) {
+            functions.push(f);
         }
-    );
+
+        const message = functions.join("\n");
+        vscode.window.showInformationMessage(message);
+    });
 
     context.subscriptions.push(disposable);
     context.subscriptions.push(buildContextCommand);

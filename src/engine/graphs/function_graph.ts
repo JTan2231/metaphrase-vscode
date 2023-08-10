@@ -9,7 +9,6 @@ export class Function {
     definitionLine: number;
     declarationLine: number;
     calls: { [key: string]: boolean };
-    embedding: Embedding;
 
     constructor() {
         this.filename = "";
@@ -19,7 +18,6 @@ export class Function {
         this.definitionLine = 0;
         this.declarationLine = 0;
         this.calls = {};
-        this.embedding = new Embedding([]);
     }
 }
 
@@ -30,7 +28,6 @@ export interface FunctionNode {
     definition: string[];
     definitionLine: number;
     declarationLine: number;
-    embedding: Embedding;
 }
 
 interface ImportEdges {
@@ -65,7 +62,6 @@ export class FunctionGraph {
                 definition: f.definition,
                 definitionLine: f.definitionLine,
                 declarationLine: f.declarationLine,
-                embedding: f.embedding,
             };
 
             const calls = Object.keys(f.calls);
@@ -213,9 +209,11 @@ export class FunctionGraph {
         console.log("------------");
     }
 
-    serialize(filename: string): void {
+    serialize(filename: string, verbose = true): void {
         fs.writeFileSync(filename, JSON.stringify(this), { flag: "w" });
-        console.log(`Function graph serialized to ${filename}`);
+        if (verbose) {
+            console.log(`Function graph serialized to ${filename}`);
+        }
     }
 
     deserialize(filename: string): void {

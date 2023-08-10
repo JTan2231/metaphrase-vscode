@@ -5,6 +5,7 @@ import * as path from "path";
 import { filenameFromPath, getLines } from "../parse_util";
 import { BracedScopeManager } from "../../scope_managers";
 import { Function } from "../../graphs/function_graph";
+import { toPosix } from "../../string";
 
 // even after the refactor this still feels terrible
 // is there something better than OOP here?
@@ -261,7 +262,7 @@ function getSources(rootPath: string): string[] {
 
     function traverseDirectory(directoryPath: string) {
         const dirents: fs.Dirent[] = fs.readdirSync(directoryPath, {
-            withFileTypes: true
+            withFileTypes: true,
         });
 
         for (const dirent of dirents) {
@@ -310,7 +311,7 @@ export function buildGraphs(rootPath: string, verbose: number): graphs.FunctionG
             console.log("processing file: " + source);
         }
 
-        processFile(functionGraph, source, verbose);
+        processFile(functionGraph, toPosix(source), verbose);
     }
 
     return functionGraph;

@@ -40,3 +40,8 @@ export function dot(e1: Embedding, e2: Embedding): number {
 
     return output;
 }
+
+export type EmbeddingMetadata = {
+    batchSize: number;
+    batchMapping: any;
+};
