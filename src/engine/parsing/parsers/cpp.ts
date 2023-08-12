@@ -264,7 +264,7 @@ export class CParser {
 }
 
 function getSources(rootPath: string): [string[], string[]] {
-    const sourceRegex: RegExp = /.*\.c$/;
+    const sourceRegex: RegExp = /.*\.cpp|\.cc$/;
 
     const sources: string[] = [];
 
@@ -277,7 +277,7 @@ function getSources(rootPath: string): [string[], string[]] {
             const filePath: string = path.join(directoryPath, dirent.name);
 
             if (dirent.isFile()) {
-                if (sourceRegex.test(dirent.name)) {
+                if (sourceRegex.test(dirent.name) && !filePath.includes("test")) {
                     sources.push(filePath);
                 }
             } else if (dirent.isDirectory()) {

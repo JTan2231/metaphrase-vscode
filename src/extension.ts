@@ -21,21 +21,14 @@ function fileExists(directory: string, fileName: string): boolean {
     }
 }
 
-async function moveCursorToFunction(functionNode: FunctionNode, extension: string): Promise<void> {
-    const files = await vscode.workspace.findFiles("**/*." + extension); // Change the file pattern as per your requirements
+async function moveCursorToFunction(functionNode: FunctionNode) {
+    console.log(`navigating to ${functionNode.filename}`);
+    const document = await vscode.workspace.openTextDocument(functionNode.filename);
+    const editor = await vscode.window.showTextDocument(document, undefined, true);
 
-    for (const file of files) {
-        const document = await vscode.workspace.openTextDocument(functionNode.filename);
-        const editor = await vscode.window.showTextDocument(document, undefined, true);
-
-        const position = new vscode.Position(functionNode.definitionLine, 0);
-        editor.selection = new vscode.Selection(position, position);
-        editor.revealRange(document.lineAt(functionNode.definitionLine).range);
-
-        return;
-    }
-
-    vscode.window.showInformationMessage(`Function '${functionNode.name}' not found.`);
+    const position = new vscode.Position(functionNode.definitionLine, 0);
+    editor.selection = new vscode.Selection(position, position);
+    editor.revealRange(document.lineAt(functionNode.definitionLine).range);
 }
 
 // Define an async function to retrieve the file list
@@ -267,7 +260,7 @@ export function activate(context: vscode.ExtensionContext) {
                     `Most similar function is ${mostSimilarFunction.name} with similarity ${highestSimilarity}`
                 );
 
-                moveCursorToFunction(mostSimilarFunction, "c");
+                moveCursorToFunction(mostSimilarFunction);
             } else {
                 vscode.window.showInformationMessage("Error getting query embedding.");
             }

@@ -25,8 +25,8 @@ export class TypeScriptParser {
     private keywords: string[] = ["function", "if", "while", "for", "class"];
 
     // these could probably be better
-    private classRegex: RegExp = /class\s[\w\d]*(\s*[\w\d]*\s*)*{/;
-    private functionRegex: RegExp = /function \w*\((\s*[\w\d]*:(\s*\w*\d*.*\s*))*\)(\s*:(\s*\w*\d*.*\s*))*{/;
+    private classRegex: RegExp = /class\s[\w\d]*(\s*[\w\.\d]*\s*)*{/;
+    private functionRegex: RegExp = /function \w*(<(.*)*>)?\(.*\)(:\s*(.*))?\s*{/;
     private classFunctionRegex: RegExp = /\w*\((\s*[\w\d]*:(\s*\w*\d*.*\s*))*\)(\s*:(\s*\w*\d*.*\s*))*\s*{/;
 
     constructor(toBeParsed: string[]) {
@@ -120,6 +120,7 @@ export class TypeScriptParser {
         this.cursor = 0;
 
         this.EOF = this.line >= this.lines.length;
+        this.scopeManager.lineBreak();
     }
 
     nextCharacter() {
@@ -139,6 +140,71 @@ export class TypeScriptParser {
         this.buffer += searchBuffer;
     }
 
+    findOpenBracket() {
+        if (this.eofCheck()) {
+            return "";
+        }
+
+        const target = "{";
+        const breakTarget = ";";
+
+        let buffer = "";
+        while (this.line < this.lines.length) {
+            const currentLine = this.lines[this.line];
+            while (this.cursor < currentLine.length) {
+                const currentChar = currentLine[this.cursor];
+                buffer += currentChar;
+                this.scopeManager.push(currentChar);
+
+                if (currentChar === breakTarget) {
+                    return "";
+                } else if (currentChar !== target) {
+                    this.cursor++;
+                } else {
+                    return buffer;
+                }
+            }
+
+            this.nextLine();
+        }
+
+        if (this.line === this.lines.length) {
+            console.log(`WARNING: EOF reached, character \`${target}\` not found.`);
+            this.EOF = true;
+        }
+
+        return buffer;
+    }
+
+    findEndParenthesis() {
+        const startingScope = this.scopeManager.length();
+        let cursor = this.cursor;
+        let line = this.line;
+
+        while (line < this.lines.length) {
+            while (cursor < this.lines[line].length) {
+                const c = this.lines[line][cursor];
+                if (c === ")") {
+                    if (this.scopeManager.length() === startingScope) {
+                        this.scopeManager.push(c);
+
+                        this.cursor = cursor;
+                        this.line = line;
+
+                        return;
+                    }
+                }
+
+                cursor++;
+            }
+
+            line++;
+            cursor = 0;
+        }
+    }
+
+    // incomplete
+    // e.g. how do we handle `function someFunction(): { prop1: string, prop2: string } {}` ?
     parse() {
         const functions: Function[] = [];
 
@@ -162,6 +228,14 @@ export class TypeScriptParser {
             const c = line[this.cursor];
 
             this.scopeManager.push(c);
+            console.log(
+                line,
+                c,
+                this.cursor,
+                this.scopeManager.top(),
+                this.scopeManager.length(),
+                this.scopeManager.inClass
+            );
 
             if (!(this.scopeManager.inQuote() || this.scopeManager.inComment())) {
                 if (currentFunction !== null && this.scopeManager.inFunction) {
@@ -183,6 +257,8 @@ export class TypeScriptParser {
                         }
 
                         const match = this.classRegex.test(this.buffer);
+                        console.log(`found class: ${this.buffer}`);
+
                         if (match) {
                             const index = Math.max(0, this.buffer.indexOf("class "));
                             this.buffer = this.buffer.substring(index, this.buffer.length);
@@ -199,10 +275,12 @@ export class TypeScriptParser {
                             // find the start of the suspected function
                             this.nextCharacter();
                             this.buffer += c;
+                            this.findEndParenthesis();
                             this.findTargetWithUpdate("{");
 
                             // does it fit the regex? if yes, start logging the definition
                             const match = this.classFunctionRegex.exec(this.buffer);
+                            console.log(`function candidate: ${this.buffer}`);
                             if (match !== null) {
                                 const functionSignature = this.buffer.slice(match.index, this.buffer.length);
                                 const functionName = functionSignature.split("(")[0];
@@ -222,6 +300,7 @@ export class TypeScriptParser {
 
                             this.buffer = functionKeyword;
                             this.nextCharacter();
+                            this.findEndParenthesis();
                             this.findTargetWithUpdate("{");
 
                             // if it fits, start logging the definition
@@ -237,6 +316,8 @@ export class TypeScriptParser {
                                 this.buffer = "";
                                 this.nextLine();
                                 continue;
+                            } else {
+                                this.buffer = "";
                             }
                         }
                     }
