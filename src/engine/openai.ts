@@ -1,7 +1,7 @@
 import axios from "axios";
 import { Embedding } from "./embedding";
 
-const apiKey = "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";
+const apiKey = "";
 
 export async function getEmbedding(text: string): Promise<[boolean, Embedding]> {
     const apiUrl = "https://api.openai.com/v1/embeddings";
