@@ -2,6 +2,10 @@
 
 Navigate and understand code with GPT in VSCode. Metaphrase breaks down programs into a list a functions, then creates embeddings for each of those functions with [OpenAI's Embedding API](https://platform.openai.com/docs/guides/embeddings).
 
+## TODO
+- LLVM / pre-existing parsing tools?
+- More LLM integration? e.g. "How is `process` being done?"
+
 ## Language Support
 
 -   C
